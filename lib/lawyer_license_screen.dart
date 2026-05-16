@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'home_screen.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'professional_details_screen.dart';
 
 class LawyerLicenseScreen extends StatefulWidget {
@@ -10,8 +11,11 @@ class LawyerLicenseScreen extends StatefulWidget {
 }
 
 class _LawyerLicenseScreenState extends State<LawyerLicenseScreen> {
-  String? selectedLicenseType; // District, High, or Supreme
-  String? selectedBarCouncil; // Dropdown value
+  String? selectedLicenseType; 
+  String? selectedBarCouncil;
+  final _licenseIdController = TextEditingController();
+  final _orgNameController = TextEditingController();
+  bool _isLoading = false;
 
   final List<String> barCouncils = [
     "Punjab Bar Council",
@@ -20,6 +24,36 @@ class _LawyerLicenseScreenState extends State<LawyerLicenseScreen> {
     "Balochistan Bar Council",
     "Islamabad Bar Council"
   ];
+
+  Future<void> _saveLicenseDetails() async {
+    if (_licenseIdController.text.isEmpty || selectedBarCouncil == null || selectedLicenseType == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please fill all required fields")));
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      String uid = FirebaseAuth.instance.currentUser!.uid;
+      await FirebaseFirestore.instance.collection('lawyers').doc(uid).update({
+        'licenseId': _licenseIdController.text.trim(),
+        'organizationName': _orgNameController.text.trim(),
+        'barCouncil': selectedBarCouncil,
+        'licenseType': selectedLicenseType,
+        'registrationStatus': 'license_completed',
+      });
+
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const ProfessionalDetailsScreen()),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,17 +65,8 @@ class _LawyerLicenseScreenState extends State<LawyerLicenseScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
-           onPressed: () {
-      Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const ProfessionalDetailsScreen()),
-      );
-      }
-        ),
+        automaticallyImplyLeading: false,
       ),
-      // 1. Scrollbar Add Kar Diya Gaya Hai
       body: Scrollbar(
         thumbVisibility: true,
         thickness: 6,
@@ -57,13 +82,12 @@ class _LawyerLicenseScreenState extends State<LawyerLicenseScreen> {
               ),
               const SizedBox(height: 30),
 
-              _buildField("License ID"),
+              _buildField("License ID", _licenseIdController),
               const SizedBox(height: 20),
 
-              _buildField("Organization Name"),
+              _buildField("Organization Name", _orgNameController),
               const SizedBox(height: 20),
 
-              // 2. Bar Council Affiliation Dropdown
               const Text("Bar Council Affiliation", style: TextStyle(color: Colors.white70)),
               const SizedBox(height: 8),
               Container(
@@ -90,19 +114,30 @@ class _LawyerLicenseScreenState extends State<LawyerLicenseScreen> {
               ),
 
               const SizedBox(height: 30),
+              
+              const Text("Upload CNIC (Front & Back)", style: TextStyle(color: Colors.white70)),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(child: _uploadBox("CNIC Front")),
+                  const SizedBox(width: 10),
+                  Expanded(child: _uploadBox("CNIC Back")),
+                ],
+              ),
+
+              const SizedBox(height: 25),
+
               const Text("Upload License (Front & Back)", style: TextStyle(color: Colors.white70)),
               const SizedBox(height: 10),
               Row(
                 children: [
-                  Expanded(child: _uploadBox("Front Side")),
+                  Expanded(child: _uploadBox("License Front")),
                   const SizedBox(width: 10),
-                  Expanded(child: _uploadBox("Back Side")),
+                  Expanded(child: _uploadBox("License Back")),
                 ],
               ),
 
               const SizedBox(height: 30),
-
-              // 3. License Type with Selection Circles (Radio Style)
               const Text("License Type", style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w500)),
               const SizedBox(height: 10),
               _buildLicenseOption("District court", goldColor),
@@ -111,7 +146,6 @@ class _LawyerLicenseScreenState extends State<LawyerLicenseScreen> {
 
               const SizedBox(height: 40),
 
-              // Submit Button
               SizedBox(
                 width: double.infinity,
                 height: 55,
@@ -120,16 +154,10 @@ class _LawyerLicenseScreenState extends State<LawyerLicenseScreen> {
                     backgroundColor: goldColor,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  onPressed: () {
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(builder: (context) => const ProfessionalDetailsScreen()),
-                    );
-                  },
-                  child: const Text(
-                    "SUBMIT SETUP",
-                    style: TextStyle(color: navyBlue, fontWeight: FontWeight.bold),
-                  ),
+                  onPressed: _isLoading ? null : _saveLicenseDetails,
+                  child: _isLoading 
+                    ? const CircularProgressIndicator(color: navyBlue)
+                    : const Text("SUBMIT SETUP", style: TextStyle(color: navyBlue, fontWeight: FontWeight.bold)),
                 ),
               ),
               const SizedBox(height: 50),
@@ -140,8 +168,8 @@ class _LawyerLicenseScreenState extends State<LawyerLicenseScreen> {
     );
   }
 
-  // Reusable TextField
-  Widget _buildField(String hint) => TextField(
+  Widget _buildField(String hint, TextEditingController controller) => TextField(
+    controller: controller,
     style: const TextStyle(color: Colors.white),
     decoration: InputDecoration(
       hintText: hint,
@@ -152,7 +180,6 @@ class _LawyerLicenseScreenState extends State<LawyerLicenseScreen> {
     ),
   );
 
-  // Reusable Upload Box
   Widget _uploadBox(String text) => Container(
     height: 100,
     decoration: BoxDecoration(
@@ -170,7 +197,6 @@ class _LawyerLicenseScreenState extends State<LawyerLicenseScreen> {
     ),
   );
 
-  // 4. Custom License Option with Circle Tick
   Widget _buildLicenseOption(String title, Color gold) {
     bool isSelected = selectedLicenseType == title;
     return GestureDetector(

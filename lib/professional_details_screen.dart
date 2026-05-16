@@ -1,6 +1,7 @@
-
 import 'package:flutter/material.dart';
-import 'home_screen.dart'; // Final submit ke baad yahan jayega
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'Lawyer_dashboard.dart';
 
 class ProfessionalDetailsScreen extends StatefulWidget {
   const ProfessionalDetailsScreen({super.key});
@@ -10,16 +11,75 @@ class ProfessionalDetailsScreen extends StatefulWidget {
 }
 
 class _ProfessionalDetailsScreenState extends State<ProfessionalDetailsScreen> {
-  // Aapke exact colors
   final Color navyBlue = const Color(0xFF101D3D);
   final Color goldColor = const Color(0xFFC5A358);
 
   String? selectedOrg;
+  final _descriptionController = TextEditingController();
   final List<String> disciplines = [
     "Property Law", "Family Law", "Criminal Law",
     "Tax Law", "Corporate Law", "Immigration Law"
   ];
   List<String> selectedDisciplines = [];
+  bool _isLoading = false;
+
+  Future<void> _completeSetup() async {
+    if (selectedDisciplines.isEmpty || _descriptionController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select at least 1 discipline and provide a description")));
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      String uid = FirebaseAuth.instance.currentUser!.uid;
+      
+      // Get current lawyer data safely
+      DocumentSnapshot userDoc = await FirebaseFirestore.instance.collection('lawyers').doc(uid).get();
+      Map<String, dynamic>? userData = userDoc.data() as Map<String, dynamic>?;
+      
+      String fullName = userData?['fullName'] ?? "Lawyer";
+      String email = userData?['email'] ?? "N/A";
+
+      // Update lawyer profile
+      await FirebaseFirestore.instance.collection('lawyers').doc(uid).update({
+        'organization': selectedOrg,
+        'specialization': selectedDisciplines,
+        'description': _descriptionController.text.trim(),
+        'registrationStatus': 'completed',
+      });
+
+      // Send detailed request to admin
+      await FirebaseFirestore.instance.collection('admin_requests').doc(uid).set({
+        'lawyerId': uid,
+        'fullName': fullName,
+        'email': email,
+        'type': 'new_registration',
+        'status': 'pending',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // Create a notification for admin
+      await FirebaseFirestore.instance.collection('admin_notifications').add({
+        'title': 'New Lawyer Registration',
+        'body': '$fullName has requested verification.',
+        'lawyerId': uid,
+        'isRead': false,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+
+      if (mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const LawyerDashboard()),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,23 +88,15 @@ class _ProfessionalDetailsScreenState extends State<ProfessionalDetailsScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
+        automaticallyImplyLeading: false,
+        title: const Text("Professional Details", style: TextStyle(color: Colors.white)),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 30),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              "Professional Details",
-              style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 30),
-
-            // --- Organization Dropdown ---
+            const SizedBox(height: 20),
             const Text("Organization Name", style: TextStyle(color: Colors.white70)),
             const SizedBox(height: 8),
             Container(
@@ -71,23 +123,10 @@ class _ProfessionalDetailsScreenState extends State<ProfessionalDetailsScreen> {
             ),
 
             const SizedBox(height: 25),
-            const Text("Location Covered", style: TextStyle(color: Colors.white70)),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(15),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Text("Pakistan", style: TextStyle(color: Colors.white)),
-            ),
-
-            const SizedBox(height: 25),
-            const Text("Preferred Discipline (Select 3)",
+            const Text("Preferred Discipline (Select up to 3)",
                 style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
             const SizedBox(height: 10),
 
-            // --- Disciplines Grid ---
             GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
@@ -130,6 +169,7 @@ class _ProfessionalDetailsScreenState extends State<ProfessionalDetailsScreen> {
             const Text("Description *", style: TextStyle(color: Colors.white70)),
             const SizedBox(height: 8),
             TextField(
+              controller: _descriptionController,
               maxLines: 4,
               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
@@ -143,7 +183,6 @@ class _ProfessionalDetailsScreenState extends State<ProfessionalDetailsScreen> {
 
             const SizedBox(height: 40),
 
-            // --- Final Submit Button ---
             SizedBox(
               width: double.infinity,
               height: 55,
@@ -152,17 +191,10 @@ class _ProfessionalDetailsScreenState extends State<ProfessionalDetailsScreen> {
                   backgroundColor: goldColor,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                onPressed: () {
-                  // Saara data backend par save karne ke baad:
-                  Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(builder: (context) => const HomeScreen())
-                  );
-                },
-                child: Text(
-                  "COMPLETE SETUP",
-                  style: TextStyle(color: navyBlue, fontWeight: FontWeight.bold),
-                ),
+                onPressed: _isLoading ? null : _completeSetup,
+                child: _isLoading 
+                  ? const CircularProgressIndicator(color: Color(0xFF101D3D))
+                  : const Text("COMPLETE SETUP", style: TextStyle(color: Color(0xFF101D3D), fontWeight: FontWeight.bold)),
               ),
             ),
             const SizedBox(height: 50),
