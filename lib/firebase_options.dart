@@ -17,10 +17,7 @@ import 'package:flutter/foundation.dart'
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
-      throw UnsupportedError(
-        'DefaultFirebaseOptions have not been configured for web - '
-        'you can reconfigure this by running the FlutterFire CLI again.',
-      );
+      return web;
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
@@ -49,20 +46,29 @@ class DefaultFirebaseOptions {
     }
   }
 
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'AIzaSyDQP_4C2i-KvTJs7EeM_KyxShTP8NXTmqA',
+    appId: '1:636284975962:web:6443c75163afe7c41c7945b70a', // Placeholder for Web
+    messagingSenderId: '636284975962',
+    projectId: 'smart-legal-assistant-app',
+    authDomain: 'smart-legal-assistant-app.firebaseapp.com',
+    storageBucket: 'smart-legal-assistant-app.firebasestorage.app',
+  );
+
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyAFWaI-WxOOVVFgs1D9wtdEZLdggW4oV1w',
-    appId: '1:576716626899:android:d8d3d8e914c94e8896ad26',
-    messagingSenderId: '576716626899',
-    projectId: 'smart-legal-assistant-5991d',
-    storageBucket: 'smart-legal-assistant-5991d.firebasestorage.app',
+    apiKey: 'AIzaSyDQP_4C2i-KvTJs7EeM_KyxShTP8NXTmqA',
+    appId: '1:636284975962:android:afe7c41c7945b70ac75163',
+    messagingSenderId: '636284975962',
+    projectId: 'smart-legal-assistant-app',
+    storageBucket: 'smart-legal-assistant-app.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyCOSSPZJsurdNkeRZ1REdLaqmkSB5taKJE',
-    appId: '1:576716626899:ios:b87693d5b4dbec9596ad26',
-    messagingSenderId: '576716626899',
-    projectId: 'smart-legal-assistant-5991d',
-    storageBucket: 'smart-legal-assistant-5991d.firebasestorage.app',
-    iosBundleId: 'com.example.firstProject',
+    apiKey: 'AIzaSyDQP_4C2i-KvTJs7EeM_KyxShTP8NXTmqA',
+    appId: '1:636284975962:ios:afe7c41c7945b70ac75163', // Placeholder for iOS
+    messagingSenderId: '636284975962',
+    projectId: 'smart-legal-assistant-app',
+    storageBucket: 'smart-legal-assistant-app.firebasestorage.app',
+    iosBundleId: 'com.example.untitled',
   );
 }
