@@ -6,8 +6,14 @@ import 'package:intl/intl.dart';
 class HearingDetailsScreen extends StatefulWidget {
   final String caseId;
   final String clientName;
+  final String? clientId;
 
-  const HearingDetailsScreen({super.key, required this.caseId, this.clientName = "Client"});
+  const HearingDetailsScreen({
+    super.key, 
+    required this.caseId, 
+    this.clientName = "Client",
+    this.clientId,
+  });
 
   @override
   State<HearingDetailsScreen> createState() => _HearingDetailsScreenState();
@@ -21,7 +27,7 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
   String _status = 'Upcoming';
   bool _isLoading = false;
   bool _isFetching = true;
-  String? _clientId; 
+  String? _resolvedClientId; 
 
   final Color navyBlue = const Color(0xFF101D3D);
   final Color goldColor = const Color(0xFFC5A358);
@@ -32,16 +38,17 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
   @override
   void initState() {
     super.initState();
+    _resolvedClientId = widget.clientId;
     _loadExistingHearingData();
   }
 
   void _loadExistingHearingData() async {
     if (widget.caseId.isEmpty) return;
     try {
-      // 1. Load from Hearings collection first
+      // 1. Hearings collection se data load karein
       var doc = await FirebaseFirestore.instance.collection('Hearings').doc(widget.caseId).get();
       if (doc.exists && mounted) {
-        final data = doc.data();
+        final data = doc.data() as Map<String, dynamic>?;
         if (data != null) {
           setState(() {
             _dateController.text = data['hearing_date'] ?? "";
@@ -49,41 +56,25 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
             _courtController.text = data['court_location'] ?? "";
             _descController.text = data['description'] ?? "";
             _status = data['status'] ?? "Upcoming";
-            _clientId = data['clientId'] ?? data['userId'];
+            if (_resolvedClientId == null) _resolvedClientId = data['clientId'] ?? data['userId'];
           });
         }
       }
 
-      // 2. Multi-source Client ID Lookup (Essential for Fatima Bibi / Kainat Bibi Sync)
-      if (_clientId == null || _clientId!.isEmpty) {
-        // Option A: Try direct ID in chat collection
+      // 2. Fetch Client ID if missing (Essential for Sync)
+      if (_resolvedClientId == null || _resolvedClientId!.isEmpty) {
+        // chat collection check karein
         var chatDoc = await FirebaseFirestore.instance.collection('chat').doc(widget.caseId).get();
         if (chatDoc.exists) {
-          _clientId = chatDoc.data()?['clientId'] ?? chatDoc.data()?['userId'];
+          _resolvedClientId = chatDoc.data()?['clientId'] ?? chatDoc.data()?['userId'];
         }
         
-        // Option B: Search chat by clientName (Fallback)
-        if (_clientId == null || _clientId!.isEmpty) {
-          var chatQuery = await FirebaseFirestore.instance.collection('chat')
+        // Agar ID abhi bhi nahi mili, client ke naam se lookup karein
+        if (_resolvedClientId == null || _resolvedClientId!.isEmpty) {
+           var chatQuery = await FirebaseFirestore.instance.collection('chat')
               .where('clientName', isEqualTo: widget.clientName).limit(1).get();
           if (chatQuery.docs.isNotEmpty) {
-            _clientId = chatQuery.docs.first.get('clientId') ?? chatQuery.docs.first.get('userId');
-          }
-        }
-
-        // Option C: Try Case request collection
-        if (_clientId == null || _clientId!.isEmpty) {
-          var reqDoc = await FirebaseFirestore.instance.collection('Case request').doc(widget.caseId).get();
-          if (reqDoc.exists) {
-            _clientId = reqDoc.data()?['clientId'] ?? reqDoc.data()?['userId'];
-          }
-        }
-
-        // Option D: Search suit_a_file_request (Fatima Bibi's possible source)
-        if (_clientId == null || _clientId!.isEmpty) {
-          var suitDoc = await FirebaseFirestore.instance.collection('suit_a_file_request').doc(widget.caseId).get();
-          if (suitDoc.exists) {
-            _clientId = suitDoc.data()?['clientId'] ?? suitDoc.data()?['userId'];
+            _resolvedClientId = chatQuery.docs.first.get('clientId') ?? chatQuery.docs.first.get('userId');
           }
         }
       }
@@ -130,21 +121,16 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
 
   Future<void> updateHearing() async {
     if (_dateController.text.isEmpty || _timeController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select Date and Time')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select Date and Time')),
+      );
       return;
     }
 
-    if (_clientId == null || _clientId!.isEmpty) {
-      // Final attempt to find ID by name if still null
-      var fallbackQuery = await FirebaseFirestore.instance.collection('chat')
-          .where('clientName', isEqualTo: widget.clientName).limit(1).get();
-      if (fallbackQuery.docs.isNotEmpty) {
-        _clientId = fallbackQuery.docs.first.get('clientId') ?? fallbackQuery.docs.first.get('userId');
-      }
-    }
-
-    if (_clientId == null || _clientId!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error: Could not find Client ID. Verify the client is active.'), backgroundColor: Colors.redAccent));
+    if (_resolvedClientId == null || _resolvedClientId!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error: Link to Client ID failed. Check case status.'), backgroundColor: Colors.redAccent),
+      );
       return;
     }
 
@@ -152,11 +138,10 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
     try {
       String? uid = FirebaseAuth.instance.currentUser?.uid;
       
-      // Save details with double-linking (clientId & userId) for max compatibility
-      await FirebaseFirestore.instance.collection('Hearings').doc(widget.caseId).set({
+      final hearingData = {
         'case_id': widget.caseId,
-        'clientId': _clientId, 
-        'userId': _clientId,   
+        'clientId': _resolvedClientId, 
+        'userId': _resolvedClientId,   // Support both fields
         'client_name': widget.clientName,
         'lawyerid': uid?.trim(),
         'lawyerId': uid?.trim(),
@@ -166,13 +151,25 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
         'description': _descController.text,
         'status': _status,
         'last_updated': FieldValue.serverTimestamp(),
+      };
+
+      // A. Save to Hearings collection
+      await FirebaseFirestore.instance.collection('Hearings').doc(widget.caseId).set(hearingData, SetOptions(merge: true));
+
+      // B. ALSO update 'chat' collection (the main case doc) so it shows on client dashboard home
+      await FirebaseFirestore.instance.collection('chat').doc(widget.caseId).set({
+        'next_hearing_date': _dateController.text,
+        'next_hearing_time': _timeController.text,
+        'next_hearing_court': _courtController.text,
+        'lastMessage': 'New hearing: ${_dateController.text}',
+        'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      // Notification for Client app
+      // C. Notification for Client
       await FirebaseFirestore.instance.collection('notifications').add({
-        'userId': _clientId,
-        'title': 'Hearing Schedule Update',
-        'body': 'Your next hearing is on ${_dateController.text} at ${_timeController.text}.',
+        'userId': _resolvedClientId,
+        'title': 'New Hearing Set',
+        'body': 'Your hearing is scheduled for ${_dateController.text} at ${_timeController.text}.',
         'type': 'hearing',
         'timestamp': FieldValue.serverTimestamp(),
         'isRead': false,
@@ -180,7 +177,7 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Hearing successfully sent to Client!'), backgroundColor: Colors.green),
+          SnackBar(content: Text('Hearing successfully sent to ${widget.clientName}!'), backgroundColor: Colors.green),
         );
         Navigator.pop(context);
       }
@@ -199,7 +196,7 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
     return Scaffold(
       backgroundColor: navyBlue,
       appBar: AppBar(
-        title: Text("Set Hearing: ${widget.clientName}", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+        title: Text("Schedule Hearing: ${widget.clientName}", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
@@ -218,20 +215,20 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
             _buildLabel("Court Name/Location"),
             _buildTextField(_courtController, Icons.gavel),
             const SizedBox(height: 15),
-            _buildLabel("Additional Details"),
+            _buildLabel("Hearing Details"),
             TextField(
               controller: _descController,
               maxLines: 4,
               style: const TextStyle(color: Colors.white, fontSize: 14),
               decoration: InputDecoration(
-                hintText: 'Enter hearing notes...',
+                hintText: 'Enter hearing details...',
                 hintStyle: const TextStyle(color: Colors.white24),
                 filled: true, fillColor: Colors.white.withOpacity(0.05),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
               ),
             ),
             const SizedBox(height: 15),
-            _buildLabel("Hearing Status"),
+            _buildLabel("Status"),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(12)),
@@ -249,7 +246,7 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
               child: ElevatedButton(
                 onPressed: _isLoading ? null : updateHearing,
                 style: ElevatedButton.styleFrom(backgroundColor: goldColor, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                child: _isLoading ? const CircularProgressIndicator(color: Color(0xFF101D3D)) : const Text("SET HEARING FOR CLIENT", style: TextStyle(color: Color(0xFF101D3D), fontWeight: FontWeight.bold, fontSize: 16)),
+                child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("SET HEARING FOR CLIENT", style: TextStyle(color: Color(0xFF101D3D), fontWeight: FontWeight.bold, fontSize: 16)),
               ),
             ),
           ],

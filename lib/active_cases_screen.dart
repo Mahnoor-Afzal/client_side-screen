@@ -40,9 +40,8 @@ class ActiveCasesScreen extends StatelessWidget {
                       String status = (data['status'] ?? "").toString().toLowerCase().trim();
                       String lId = (data['lawyerid'] ?? data['lawyerId'] ?? "").toString().trim();
                       
-                      // Support both 'accepted' and 'active' status as requested
-                      bool isActiveStatus = status == 'accepted' || status == 'active';
-                      return isActiveStatus && lId == uid.trim();
+                      bool isActive = status == 'accepted' || status == 'active';
+                      return isActive && lId == uid.trim();
                     }));
                   }
                 }
@@ -102,10 +101,10 @@ class ActiveCasesScreen extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
       child: Padding(
-        padding: const EdgeInsets.all(15),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min, // Essential to prevent overflow
+          mainAxisSize: MainAxisSize.min,
           children: [
             Row(
               children: [
@@ -115,8 +114,8 @@ class ActiveCasesScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: navyBlue, fontSize: 17), maxLines: 1, overflow: TextOverflow.ellipsis),
-                      Text(type, style: const TextStyle(fontSize: 13, color: Colors.black54), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: navyBlue, fontSize: 18), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text(type, style: const TextStyle(fontSize: 14, color: Colors.black54), maxLines: 1, overflow: TextOverflow.ellipsis),
                     ],
                   ),
                 ),
@@ -124,11 +123,11 @@ class ActiveCasesScreen extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             
-            // SHOWING CLIENT'S MESSAGE ("whats up") ON DASHBOARD
+            // Fixed: Using Doc ID directly to avoid "Link/Index Error"
             StreamBuilder<DocumentSnapshot>(
               stream: FirebaseFirestore.instance.collection('chat').doc(id).snapshots(),
               builder: (context, snap) {
-                String lastMsg = "Start a conversation...";
+                String lastMsg = "Tap Chat to communicate...";
                 if (snap.hasData && snap.data!.exists) {
                   var cData = snap.data!.data() as Map<String, dynamic>;
                   lastMsg = cData['lastMessage'] ?? lastMsg;
@@ -150,7 +149,6 @@ class ActiveCasesScreen extends StatelessWidget {
             
             const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Divider(height: 1)),
             
-            // USING WRAP TO PREVENT "YELLOW/BLACK BOX" OVERFLOW
             Wrap(
               spacing: 6,
               runSpacing: 8,
@@ -160,10 +158,10 @@ class ActiveCasesScreen extends StatelessWidget {
                   Navigator.push(context, MaterialPageRoute(builder: (context) => ChatScreen(consultationId: id, clientName: name, clientId: clientId)));
                 }),
                 _buildActionChip(context, Icons.gavel, "Hearings", goldColor, () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => HearingDetailsScreen(caseId: id, clientName: name)));
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => HearingDetailsScreen(caseId: id, clientName: name, clientId: clientId)));
                 }),
                 _buildActionChip(context, Icons.assignment_outlined, "Vakalatnama", Colors.teal, () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => WakalatnamaForm(clientId: clientId, clientName: name)));
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => WakalatnamaForm(clientId: clientId, clientName: name, requestId: id)));
                 }),
               ],
             )

@@ -134,20 +134,22 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
       if (status == 'accepted') {
         var data = doc.data() as Map<String, dynamic>;
         String clientId = data['clientId'] ?? data['userId'] ?? "";
-        String clientName = data['clientName'] ?? data['fullName'] ?? "Client";
+        String clientName = data['clientName'] ?? data['fullName'] ?? "Kainat bibi";
 
-        // Using 'chat' collection as per requirement
+        // Create Chat entry with type 'case' to avoid mixing with consultations
         await FirebaseFirestore.instance.collection('chat').doc(doc.id).set({
           'requestId': doc.id,
           'lawyerid': lawyerId,
+          'lawyerId': lawyerId,
           'clientId': clientId,
           'clientName': clientName,
           'topic': data['caseType'] ?? data['title'] ?? 'Legal Matter',
-          'status': 'ongoing',
+          'status': 'Active',
+          'type': 'case', // Strictly marked as case
           'lastMessage': 'Case accepted. Chat started.',
           'lastMessageTime': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
-          'date': DateFormat('dd MMM yyyy').format(DateTime.now()),
+          'users': [clientId, lawyerId],
         }, SetOptions(merge: true));
 
         if (clientId.isNotEmpty) {

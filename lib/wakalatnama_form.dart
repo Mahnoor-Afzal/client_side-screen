@@ -13,8 +13,9 @@ import 'package:signature/signature.dart';
 class WakalatnamaForm extends StatefulWidget {
   final String? clientId;
   final String? clientName;
+  final String? requestId;
 
-  const WakalatnamaForm({super.key, this.clientId, this.clientName});
+  const WakalatnamaForm({super.key, this.clientId, this.clientName, this.requestId});
 
   @override
   State<WakalatnamaForm> createState() => _WakalatnamaFormState();
@@ -31,7 +32,6 @@ class _WakalatnamaFormState extends State<WakalatnamaForm> {
   final _advocateController = TextEditingController();
   final _dateController = TextEditingController(text: DateTime.now().toString().split(' ')[0]);
 
-  final SignatureController _clientSignController = SignatureController(penStrokeWidth: 3, penColor: Colors.black);
   final SignatureController _lawyerSignController = SignatureController(penStrokeWidth: 3, penColor: Colors.black);
 
   bool _isSaving = false;
@@ -47,39 +47,51 @@ class _WakalatnamaFormState extends State<WakalatnamaForm> {
     _tryResolveClientId();
   }
 
+  // Robust ID lookup for Fatima Bibi / Kainat bibi
   Future<void> _tryResolveClientId() async {
     if (_resolvedClientId != null && _resolvedClientId!.isNotEmpty) return;
     try {
-      var chatQuery = await FirebaseFirestore.instance
-          .collection('chat')
-          .where('clientName', isEqualTo: _petitionerController.text)
-          .limit(1)
-          .get();
-      if (chatQuery.docs.isNotEmpty) {
-        setState(() {
+      // Try resolving by request ID first
+      if (widget.requestId != null && widget.requestId!.isNotEmpty) {
+        var doc = await FirebaseFirestore.instance.collection('Case request').doc(widget.requestId).get();
+        if (doc.exists) {
+          _resolvedClientId = doc.data()?['clientId'] ?? doc.data()?['userId'];
+        }
+      }
+      
+      // Fallback: Search by name in 'chat' collection
+      if (_resolvedClientId == null || _resolvedClientId!.isEmpty) {
+        var chatQuery = await FirebaseFirestore.instance.collection('chat')
+            .where('clientName', isEqualTo: _petitionerController.text)
+            .limit(1).get();
+        if (chatQuery.docs.isNotEmpty) {
           _resolvedClientId = chatQuery.docs.first.get('clientId') ?? chatQuery.docs.first.get('userId');
-        });
+        }
       }
     } catch (e) {
-      debugPrint("Error resolving client ID: $e");
+      debugPrint("ID Discovery Error: $e");
     }
   }
 
   @override
   void dispose() {
-    _clientSignController.dispose();
     _lawyerSignController.dispose();
     super.dispose();
   }
 
   Future<void> _saveDocument() async {
     if (_courtController.text.isEmpty || _petitionerController.text.isEmpty || _advocateController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please fill all fields.")));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please fill all required fields.")));
       return;
     }
 
+    // Ensure we have a valid Client ID before proceeding
     if (_resolvedClientId == null || _resolvedClientId!.isEmpty) {
       await _tryResolveClientId();
+      if (_resolvedClientId == null || _resolvedClientId!.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error: Link to Client ID failed. Check client name."), backgroundColor: Colors.redAccent));
+        return;
+      }
     }
 
     setState(() => _isSaving = true);
@@ -87,90 +99,98 @@ class _WakalatnamaFormState extends State<WakalatnamaForm> {
       String? uid = FirebaseAuth.instance.currentUser?.uid;
       final lawyerSignImg = await _lawyerSignController.toPngBytes();
 
-      // 1. Generate PDF with Lawyer Signature
+      // 1. Generate Professional PDF
       final pdf = pw.Document();
       pdf.addPage(
         pw.Page(
+          pageFormat: PdfPageFormat.a4,
           build: (pw.Context context) {
-            return pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Center(child: pw.Text("VAKALATNAMA", style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold))),
-                pw.SizedBox(height: 20),
-                pw.Text("COURT: ${_courtController.text}"),
-                pw.Text("CASE NO: ${_caseNoController.text}"),
-                pw.Text("PETITIONER: ${_petitionerController.text}"),
-                pw.Text("RESPONDENT: ${_respondentController.text}"),
-                pw.Text("ADVOCATE: ${_advocateController.text}"),
-                pw.SizedBox(height: 40),
-                pw.Text("8 Legal Points of Agreement... (Simplified for PDF)"),
-                pw.SizedBox(height: 50),
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text("Client Signature: ________________"),
-                    pw.Column(
-                      children: [
-                        if (lawyerSignImg != null) pw.Image(pw.MemoryImage(lawyerSignImg), width: 100, height: 50),
+            return pw.Padding(
+              padding: const pw.EdgeInsets.all(30),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Center(child: pw.Text("VAKALATNAMA", style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold))),
+                  pw.SizedBox(height: 20),
+                  pw.Text("IN THE COURT OF: ${_courtController.text}"),
+                  pw.Text("CASE NO / YEAR: ${_caseNoController.text}"),
+                  pw.Text("PETITIONER / PLAINTIFF: ${_petitionerController.text}"),
+                  pw.Center(child: pw.Text("VERSUS", style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+                  pw.Text("RESPONDENT / DEFENDANT: ${_respondentController.text}"),
+                  pw.Text("ADVOCATE(S) NAME: ${_advocateController.text}"),
+                  pw.SizedBox(height: 20),
+                  pw.Divider(),
+                  pw.Text("1. To appear, plead, and act in the Court.\n"
+                          "2. To sign and verify all plaints and petitions.\n"
+                          "3. I/We undertake to appear in court on every date.\n"
+                          "4. Advocate is authorized to receive all payments.\n"
+                          "5. Power to compromise, withdraw, or arbitrate.\n"
+                          "6. Power to appoint other legal practitioners.\n"
+                          "7. Agreement to pay settled legal fees.\n"
+                          "8. I/We have heard and understood all terms mentioned above.", 
+                          style: const pw.TextStyle(fontSize: 12)),
+                  pw.SizedBox(height: 60),
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Column(children: [pw.Container(width: 120, height: 1, color: PdfColors.black), pw.Text("Client Signature")]),
+                      pw.Column(children: [
+                        if (lawyerSignImg != null) pw.Image(pw.MemoryImage(lawyerSignImg), width: 100, height: 40),
                         pw.Container(width: 120, height: 1, color: PdfColors.black),
                         pw.Text("Advocate Signature")
-                      ]
-                    )
-                  ]
-                )
-              ]
+                      ]),
+                    ],
+                  ),
+                  pw.SizedBox(height: 20),
+                  pw.Text("DATED: ${_dateController.text}"),
+                ],
+              ),
             );
-          }
-        )
+          },
+        ),
       );
 
       final output = await getTemporaryDirectory();
       final file = File("${output.path}/vakalatnama_${DateTime.now().millisecondsSinceEpoch}.pdf");
       await file.writeAsBytes(await pdf.save());
 
-      // 2. Upload to Firebase Storage so Client can download
-      String fileName = "vakalatnama_${DateTime.now().millisecondsSinceEpoch}.pdf";
-      Reference storageRef = FirebaseStorage.instance.ref().child('vakalatnamas/$uid/$fileName');
-      UploadTask uploadTask = storageRef.putFile(file);
-      TaskSnapshot storageSnap = await uploadTask;
-      String downloadUrl = await storageSnap.ref.getDownloadURL();
+      // 2. Upload to Firebase Storage
+      String storagePath = "vakalatnamas/${uid}_${DateTime.now().millisecondsSinceEpoch}.pdf";
+      TaskSnapshot uploadTask = await FirebaseStorage.instance.ref().child(storagePath).putFile(file);
+      String downloadUrl = await uploadTask.ref.getDownloadURL();
 
-      // 3. Save to Firestore
+      // 3. Save Record to Firestore 'documents'
       await FirebaseFirestore.instance.collection('documents').add({
         'lawyerId': uid,
-        'clientId': _resolvedClientId ?? "",
+        'clientId': _resolvedClientId,
+        'clientName': _petitionerController.text,
         'type': 'Vakalatnama',
         'courtName': _courtController.text,
-        'petitioner': _petitionerController.text,
-        'respondent': _respondentController.text,
-        'advocateName': _advocateController.text,
         'caseNo': _caseNoController.text,
-        'date': _dateController.text,
         'status': 'pending_client_signature', 
-        'fileUrl': downloadUrl, // The URL for the client to download
+        'fileUrl': downloadUrl,
         'lawyerSignature': lawyerSignImg != null ? base64Encode(lawyerSignImg) : null,
         'timestamp': FieldValue.serverTimestamp(),
         'senderType': 'lawyer',
       });
 
-      // 4. Notify Client
-      if (_resolvedClientId != null) {
-        await FirebaseFirestore.instance.collection('notifications').add({
-          'userId': _resolvedClientId,
-          'title': 'Vakalatnama for Signature',
-          'body': 'Your lawyer has sent a Vakalatnama. Please download, sign and re-upload.',
-          'type': 'vakalatnama',
-          'timestamp': FieldValue.serverTimestamp(),
-          'isRead': false,
-        });
-      }
+      // 4. Send Notification to Client app
+      await FirebaseFirestore.instance.collection('notifications').add({
+        'userId': _resolvedClientId,
+        'title': 'New Vakalatnama Received',
+        'body': 'Your lawyer has sent a Vakalatnama for you to sign.',
+        'type': 'vakalatnama',
+        'timestamp': FieldValue.serverTimestamp(),
+        'isRead': false,
+      });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Vakalatnama sent! Client can now download and sign."), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Vakalatnama sent successfully to client!"), backgroundColor: Colors.green));
         Navigator.pop(context);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Firebase Error: $e"), backgroundColor: Colors.red));
+      debugPrint("Detailed Submit Error: $e");
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -190,43 +210,57 @@ class _WakalatnamaFormState extends State<WakalatnamaForm> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Center(child: Text("VAKALATNAMA", style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, letterSpacing: 1.5))),
+            const Center(child: Text("VAKALATNAMA FORM", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 1.2))),
             const SizedBox(height: 30),
             
-            _buildInputField("IN THE COURT OF:", _courtController, "Court Name"),
-            _buildInputField("CASE NO / YEAR:", _caseNoController, "e.g. 123/2026"),
-            _buildInputField("PETITIONER / PLAINTIFF:", _petitionerController, "Client Name"),
+            _buildInputField("IN THE COURT OF:", _courtController, "e.g. Islamabad High Court"),
+            _buildInputField("CASE NO / YEAR:", _caseNoController, "e.g. 1234/2026"),
+            _buildInputField("PETITIONER / PLAINTIFF:", _petitionerController, "Name of Client"),
             const Center(child: Text("VERSUS", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey, fontSize: 12))),
-            _buildInputField("RESPONDENT / DEFENDANT:", _respondentController, "Opposing Party"),
-            _buildInputField("ADVOCATE(S) NAME:", _advocateController, "Lawyer Name"),
+            const SizedBox(height: 10),
+            _buildInputField("RESPONDENT / DEFENDANT:", _respondentController, "Name of Opposing Party"),
+            _buildInputField("ADVOCATE(S) NAME:", _advocateController, "Lawyer's Name"),
 
             const SizedBox(height: 20),
             const Divider(thickness: 1),
-            const SizedBox(height: 10),
-            
             const Text(
               "I/We, the undersigned, do hereby appoint and constitute the above-named Advocate(s) to be my/our lawful attorney to represent me/us in the mentioned case. The Advocate is authorized to perform the following acts on my/our behalf:",
-              style: TextStyle(fontSize: 14, height: 1.6, fontWeight: FontWeight.w500, color: Colors.black87),
+              style: TextStyle(fontSize: 13, height: 1.5, color: Colors.black87),
               textAlign: TextAlign.justify,
             ),
-            const SizedBox(height: 15),
-            _buildLegalPoint("1. To appear, plead, and act in the above-mentioned Court or any other Court in which the case may be heard or transferred."),
-            _buildLegalPoint("2. To sign and verify all plaints, written statements, petitions, appeals, and all other legal documents required for the proceedings."),
-            _buildLegalPoint("3. I/We undertake to appear in court on every date of hearing. If the case is dismissed or decided ex-parte due to my/our absence, the Advocate shall not be held responsible."),
-            _buildLegalPoint("4. The Advocate is authorized to receive all payments, costs, or documents from the Court or the opposing party and issue valid receipts on my/our behalf."),
-            _buildLegalPoint("5. The Advocate has full power to compromise, withdraw the case, or submit the matter to arbitration as deemed beneficial for me/us."),
-            _buildLegalPoint("6. The Advocate is authorized to appoint or engage any other legal practitioner, pleader, or assistant to represent or assist in the case."),
-            _buildLegalPoint("7. I/We agree to pay the settled legal fees before the date of hearing. If fees are not paid, the Advocate reserves the right to withdraw from the case."),
-            _buildLegalPoint("8. I/We have heard and understood the contents of this document in my/our own language and agree to all terms mentioned above."),
+            const SizedBox(height: 10),
+            _buildLegalPoint("1. To appear, plead, and act in the Court."),
+            _buildLegalPoint("2. To sign and verify all plaints and petitions."),
+            _buildLegalPoint("3. I/We undertake to appear in court on every date."),
+            _buildLegalPoint("4. Advocate is authorized to receive all payments."),
+            _buildLegalPoint("5. Power to compromise, withdraw, or arbitrate."),
+            _buildLegalPoint("6. Power to appoint other legal practitioners."),
+            _buildLegalPoint("7. Agreement to pay settled legal fees."),
+            _buildLegalPoint("8. I/We have understood all terms of agreement."),
             
             const SizedBox(height: 30),
             _buildInputField("DATED:", _dateController, "YYYY-MM-DD"),
             
             const SizedBox(height: 40),
             
-            _buildSignatureSection("Client's Signature (To be signed by client):", _clientSignController, isReadOnly: true),
+            // Client Signature Pad (DISABLED for Lawyer side)
+            const Text("Client's Signature:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
+            const SizedBox(height: 8),
+            Container(
+              height: 100, width: double.infinity,
+              decoration: BoxDecoration(color: Colors.grey[100], border: Border.all(color: Colors.black12), borderRadius: BorderRadius.circular(8)),
+              child: const Center(child: Text("Waiting for Client to sign from their app", style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic))),
+            ),
+
             const SizedBox(height: 25),
-            _buildSignatureSection("Advocate's Signature (By Hand):", _lawyerSignController, isReadOnly: false),
+            // Lawyer Signature Pad (ENABLED)
+            const Text("Advocate's Signature (Sign Below):", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
+            const SizedBox(height: 8),
+            Container(
+              decoration: BoxDecoration(border: Border.all(color: Colors.black12), borderRadius: BorderRadius.circular(8)),
+              child: Signature(controller: _lawyerSignController, height: 120, backgroundColor: Colors.grey[50]!),
+            ),
+            Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => _lawyerSignController.clear(), child: const Text("Clear Signature"))),
 
             const SizedBox(height: 50),
             
@@ -234,12 +268,7 @@ class _WakalatnamaFormState extends State<WakalatnamaForm> {
               width: double.infinity,
               height: 55,
               child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: navyBlue,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  elevation: 5,
-                ),
+                style: ElevatedButton.styleFrom(backgroundColor: navyBlue, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                 onPressed: _isSaving ? null : _saveDocument,
                 icon: _isSaving 
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
@@ -264,14 +293,7 @@ class _WakalatnamaFormState extends State<WakalatnamaForm> {
           const SizedBox(height: 5),
           TextField(
             controller: controller,
-            style: const TextStyle(fontSize: 16, color: Colors.black),
-            decoration: InputDecoration(
-              hintText: hint,
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(vertical: 8),
-              enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.black26)),
-              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: goldColor, width: 2)),
-            ),
+            decoration: InputDecoration(hintText: hint, isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 8), border: const UnderlineInputBorder()),
           ),
         ],
       ),
@@ -289,34 +311,6 @@ class _WakalatnamaFormState extends State<WakalatnamaForm> {
           Expanded(child: Text(text, style: const TextStyle(fontSize: 13, color: Colors.black87, height: 1.4), textAlign: TextAlign.justify)),
         ],
       ),
-    );
-  }
-
-  Widget _buildSignatureSection(String label, SignatureController controller, {required bool isReadOnly}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
-        const SizedBox(height: 8),
-        AbsorbPointer(
-          absorbing: isReadOnly,
-          child: Container(
-            decoration: BoxDecoration(
-              color: isReadOnly ? Colors.grey[100] : Colors.grey[50],
-              border: Border.all(color: Colors.black12), 
-              borderRadius: BorderRadius.circular(8)
-            ),
-            child: Signature(controller: controller, height: 120, backgroundColor: Colors.transparent),
-          ),
-        ),
-        if (!isReadOnly)
-          Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => controller.clear(), child: const Text("Clear Signature"))),
-        if (isReadOnly)
-          const Padding(
-            padding: EdgeInsets.only(top: 4),
-            child: Text("Waiting for client to sign from their app", style: TextStyle(fontSize: 10, color: Colors.grey, fontStyle: FontStyle.italic)),
-          ),
-      ],
     );
   }
 }

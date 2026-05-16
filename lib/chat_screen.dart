@@ -6,7 +6,7 @@ import 'package:intl/intl.dart';
 class ChatScreen extends StatefulWidget {
   final String consultationId;
   final String clientName;
-  final String? clientId; // Added to sync with Fatima Bibi's ID
+  final String? clientId;
 
   const ChatScreen({
     super.key, 
@@ -22,7 +22,26 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  String? _lawyerName;
+
   String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLawyerName();
+  }
+
+  // Fetch lawyer's name to sync with client dashboard
+  void _fetchLawyerName() async {
+    if (currentUserId == null) return;
+    var doc = await FirebaseFirestore.instance.collection('lawyers').doc(currentUserId).get();
+    if (doc.exists) {
+      setState(() {
+        _lawyerName = doc.data()?['fullName'] ?? "Lawyer";
+      });
+    }
+  }
 
   void _sendMessage() async {
     if (_messageController.text.trim().isEmpty || currentUserId == null) return;
@@ -34,19 +53,22 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       DocumentReference chatDoc = FirebaseFirestore.instance.collection('chat').doc(chatId);
       
-      // 1. Save message to sub-collection
+      // 1. Save to sub-collection for history
       await chatDoc.collection('messages').add({
         'text': text,
         'senderId': currentUserId,
         'timestamp': FieldValue.serverTimestamp(),
       });
 
-      // 2. Update parent document with EXACT fields from your Fatima Bibi Firestore
+      // 2. Update parent document for Client Dashboard (Syncs EVERYTHING)
       await chatDoc.set({
         'lastMessage': text,
         'lastMessageTime': FieldValue.serverTimestamp(),
-        'users': [widget.clientId ?? "", currentUserId], // Array for both users
+        'updatedAt': FieldValue.serverTimestamp(),
+        'users': [widget.clientId ?? "", currentUserId], // From your snippet
+        'lawyerid': currentUserId,
         'lawyerId': currentUserId,
+        'lawyerName': _lawyerName ?? "Lawyer", // Important for client dash
         'clientId': widget.clientId ?? "",
         'clientName': widget.clientName,
         'status': 'Active',
@@ -54,7 +76,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
       _scrollToBottom();
     } catch (e) {
-      debugPrint("Chat Sync Error: $e");
+      debugPrint("Sync Error: $e");
     }
   }
 
@@ -82,7 +104,7 @@ class _ChatScreenState extends State<ChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(widget.clientName, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
-            const Text("Live Connection", style: TextStyle(color: Colors.greenAccent, fontSize: 11)),
+            const Text("Online Chat", style: TextStyle(color: Colors.greenAccent, fontSize: 11)),
           ],
         ),
       ),
@@ -160,7 +182,7 @@ class _ChatScreenState extends State<ChatScreen> {
               child: TextField(
                 controller: _messageController,
                 decoration: InputDecoration(
-                  hintText: "Type a message...",
+                  hintText: "Reply to ${widget.clientName}...",
                   filled: true,
                   fillColor: Colors.grey[100],
                   contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),

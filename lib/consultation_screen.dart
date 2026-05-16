@@ -37,36 +37,28 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
         ),
         body: TabBarView(
           children: [
-            _buildConsultationList('pending'),
-            _buildConsultationList('ongoing'),
+            _buildRequestList(),
+            _buildOngoingList(),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildConsultationList(String status) {
+  // Requests Tab: Showing pending requests from 'consultation_request' (e.g. Javeria)
+  Widget _buildRequestList() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
-          .collection('chat') 
-          .where('lawyerid', isEqualTo: currentLawyerId)
-          .where('status', isEqualTo: status)
+          .collection('consultation_request')
+          .where('lawyerId', isEqualTo: currentLawyerId)
+          .where('status', isEqualTo: 'Pending')
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.chat_bubble_outline, size: 60, color: Colors.grey.withOpacity(0.5)),
-                const SizedBox(height: 10),
-                Text("No $status chats found.", style: const TextStyle(color: Colors.grey)),
-              ],
-            ),
-          );
+          return _buildEmptyState("pending requests");
         }
 
         return ListView.builder(
@@ -82,9 +74,63 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
               child: ListTile(
                 contentPadding: const EdgeInsets.all(16),
                 leading: CircleAvatar(backgroundColor: navyBlue, child: const Icon(Icons.person, color: Colors.white)),
+                title: Text(data['clientName'] ?? "Javeria", style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: const Text("Consultation Requested"),
+                trailing: ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+                  onPressed: () => _acceptConsultation(doc.id, data),
+                  child: const Text("Accept"),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Ongoing Tab: Showing chats from 'chat' collection (Restored Javeria)
+  Widget _buildOngoingList() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('chat')
+          .where('users', arrayContains: currentLawyerId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        
+        final docs = snapshot.data?.docs.where((doc) {
+          var data = doc.data() as Map<String, dynamic>;
+          String status = (data['status'] ?? "").toString().toLowerCase();
+          String type = (data['type'] ?? "").toString().toLowerCase();
+          
+          // STRICT SEPARATION: 
+          // 1. Agar type 'case' hai, toh Consultation mein nahi dikhayenge (Kainat bibi yahan se hide ho jayegi).
+          // 2. Agar type empty hai ya 'consultation' hai, toh Javeria show hogi.
+          bool isCase = type == 'case' || type == 'file a suit';
+          bool isActive = status == 'active' || status == 'ongoing' || status == 'accepted';
+          
+          return !isCase && isActive;
+        }).toList() ?? [];
+
+        if (docs.isEmpty) return _buildEmptyState("ongoing chats");
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(12),
+          itemCount: docs.length,
+          itemBuilder: (context, index) {
+            var doc = docs[index];
+            var data = doc.data() as Map<String, dynamic>;
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              child: ListTile(
+                contentPadding: const EdgeInsets.all(16),
+                leading: CircleAvatar(backgroundColor: navyBlue, child: const Icon(Icons.person, color: Colors.white)),
                 title: Text(data['clientName'] ?? "Client", style: const TextStyle(fontWeight: FontWeight.bold)),
-                
-                // Show real-time latest message from the sub-collection
                 subtitle: StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance
                       .collection('chat')
@@ -94,38 +140,27 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                       .limit(1)
                       .snapshots(),
                   builder: (context, msgSnap) {
-                    String lastMsg = data['lastMessage'] ?? "Topic: ${data['topic'] ?? 'Legal Advice'}";
+                    String lastMsg = data['lastMessage'] ?? "Click to start chatting...";
                     if (msgSnap.hasData && msgSnap.data!.docs.isNotEmpty) {
-                      var mData = msgSnap.data!.docs.first.data() as Map<String, dynamic>;
-                      lastMsg = mData['text'] ?? lastMsg;
+                       var mData = msgSnap.data!.docs.first.data() as Map<String, dynamic>;
+                       lastMsg = mData['text'] ?? lastMsg;
                     }
-                    return Text(
-                      lastMsg,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.blueGrey),
-                    );
-                  },
+                    return Text(lastMsg, maxLines: 1, overflow: TextOverflow.ellipsis);
+                  }
                 ),
-
-                trailing: status == 'pending'
-                    ? ElevatedButton(
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-                        onPressed: () => _updateStatus(doc.id, 'ongoing', data),
-                        child: const Text("Accept"),
-                      )
-                    : Icon(Icons.chevron_right, color: goldColor),
-                onTap: status == 'ongoing' ? () {
+                trailing: Icon(Icons.chat, color: goldColor),
+                onTap: () {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (context) => ChatScreen(
                         consultationId: doc.id,
                         clientName: data['clientName'] ?? "Client",
+                        clientId: data['clientId'] ?? data['userId'],
                       ),
                     ),
                   );
-                } : null,
+                },
               ),
             );
           },
@@ -134,21 +169,46 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     );
   }
 
-  Future<void> _updateStatus(String docId, String newStatus, Map<String, dynamic> data) async {
+  Widget _buildEmptyState(String msg) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.chat_bubble_outline, size: 60, color: Colors.grey.withOpacity(0.5)),
+          const SizedBox(height: 10),
+          Text("No $msg found.", style: const TextStyle(color: Colors.grey)),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _acceptConsultation(String docId, Map<String, dynamic> data) async {
     try {
-      await FirebaseFirestore.instance.collection('chat').doc(docId).update({
-        'status': newStatus,
-        'updatedAt': FieldValue.serverTimestamp(),
+      await FirebaseFirestore.instance.collection('consultation_request').doc(docId).update({
+        'status': 'Accepted',
       });
 
-      if (mounted && newStatus == 'ongoing') {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chat Enabled!"), backgroundColor: Colors.green));
+      await FirebaseFirestore.instance.collection('chat').doc(docId).set({
+        'lawyerid': currentLawyerId,
+        'lawyerId': currentLawyerId,
+        'clientId': data['clientId'],
+        'clientName': data['clientName'],
+        'status': 'Active',
+        'type': 'consultation',
+        'lastMessage': 'Consultation started',
+        'updatedAt': FieldValue.serverTimestamp(),
+        'users': [data['clientId'], currentLawyerId],
+      }, SetOptions(merge: true));
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Accepted! Opening chat..."), backgroundColor: Colors.green));
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => ChatScreen(
               consultationId: docId,
-              clientName: data['clientName'] ?? "Client",
+              clientName: data['clientName'] ?? "Javeria",
+              clientId: data['clientId'],
             ),
           ),
         );

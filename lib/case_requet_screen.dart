@@ -139,32 +139,37 @@ class _CaseRequestsScreenState extends State<CaseRequestsScreen> {
 
   Future<void> _updateStatus(DocumentSnapshot doc, String status) async {
     try {
-      await doc.reference.set({'status': status}, SetOptions(merge: true));
+      await doc.reference.set({
+        'status': status,
+        'lawyerid': currentLawyerId,
+      }, SetOptions(merge: true));
 
       if (status == 'accepted') {
         var data = doc.data() as Map<String, dynamic>;
         String clientId = data['clientId'] ?? data['userId'] ?? "";
         String clientName = data['clientName'] ?? data['fullName'] ?? "Client";
 
-        // Using 'chat' collection for sync with client dashboard
+        // Create 'chat' entry with type 'case' to keep it separate from consultations
         await FirebaseFirestore.instance.collection('chat').doc(doc.id).set({
           'requestId': doc.id,
           'lawyerid': currentLawyerId, 
           'clientId': clientId,
           'clientName': clientName,
           'topic': data['caseType'] ?? data['title'] ?? 'Legal Matter',
-          'status': 'ongoing',
+          'status': 'Active',
+          'type': 'case', // Strictly marked as case
           'date': DateFormat('dd MMM yyyy').format(DateTime.now()),
           'time': TimeOfDay.now().format(context),
           'updatedAt': FieldValue.serverTimestamp(),
-          'lastMessage': 'Chat started',
+          'lastMessage': 'Case accepted. Chat started.',
+          'users': [clientId, currentLawyerId],
         }, SetOptions(merge: true));
 
         if (clientId.isNotEmpty) {
           await FirebaseFirestore.instance.collection('notifications').add({
             'userId': clientId,
             'title': 'Request Accepted!',
-            'body': 'Your request has been accepted. You can now start a chat.',
+            'body': 'Your legal request has been accepted. Communication is now open.',
             'type': 'chat_enabled',
             'requestId': doc.id,
             'timestamp': FieldValue.serverTimestamp(),
@@ -172,7 +177,7 @@ class _CaseRequestsScreenState extends State<CaseRequestsScreen> {
           });
         }
         
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Request Accepted! Chat Enabled."), backgroundColor: Colors.green));
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Case Accepted! Added to Active Cases."), backgroundColor: Colors.green));
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
