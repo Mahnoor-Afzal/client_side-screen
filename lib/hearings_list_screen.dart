@@ -23,40 +23,35 @@ class HearingsListScreen extends StatelessWidget {
       body: uid == null
           ? const Center(child: Text("Please login to see hearings"))
           : StreamBuilder<QuerySnapshot>(
-              // Fetching all hearings and filtering in code to prevent any "disappearing" issue
               stream: FirebaseFirestore.instance.collection('Hearings').snapshots(),
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+                // Loading spinner removed for instant access
                 
-                // Master Filter for Lawyer ID (Handling both lawyerid and lawyerId)
+                // MULTI-LAWYER COORDINATION FILTER:
+                // Show hearing if the current lawyer is the lead OR in the assigned team
                 var docs = snapshot.data?.docs.where((doc) {
                   var data = doc.data() as Map<String, dynamic>;
                   String lId = (data['lawyerid'] ?? data['lawyerId'] ?? "").toString().trim();
-                  return lId == uid.toString().trim();
+                  List assigned = data['assignedLawyers'] ?? [];
+                  
+                  return lId == uid.toString().trim() || assigned.contains(uid.toString().trim());
                 }).toList() ?? [];
 
-                if (docs.isEmpty) {
+                if (docs.isEmpty && snapshot.connectionState != ConnectionState.waiting) {
                   return Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(Icons.event_note, size: 80, color: navyBlue.withOpacity(0.3)),
                         const SizedBox(height: 15),
-                        const Text("No scheduled hearings found.", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 10),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 40),
-                          child: Text(
-                            "Lawyer ID: $uid\n(Ensure this ID matches perfectly in Firebase)",
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(fontSize: 10, color: Colors.blueGrey),
-                          ),
-                        ),
+                        const Text("No scheduled hearings found for your team.", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
                       ],
                     ),
                   );
+                }
+
+                if (docs.isEmpty && snapshot.connectionState == ConnectionState.waiting) {
+                   return const SizedBox.shrink(); // Empty space instead of spinner during initial load
                 }
 
                 return ListView.builder(
@@ -98,7 +93,7 @@ class HearingsListScreen extends StatelessWidget {
                               ],
                             ),
                             const SizedBox(height: 5),
-                            Text("Hearing Date: ${data['hearing_date'] ?? 'N/A'}", 
+                            Text("Date: ${data['hearing_date'] ?? 'N/A'}",
                                  style: TextStyle(color: goldColor, fontWeight: FontWeight.w600)),
                             const Divider(height: 20),
                             Row(

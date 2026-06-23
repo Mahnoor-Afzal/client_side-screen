@@ -38,10 +38,14 @@ class ActiveCasesScreen extends StatelessWidget {
                     allActive.addAll(snap.docs.where((doc) {
                       var data = doc.data() as Map<String, dynamic>;
                       String status = (data['status'] ?? "").toString().toLowerCase().trim();
-                      String lId = (data['lawyerid'] ?? data['lawyerId'] ?? "").toString().trim();
+                      String leadId = (data['lawyerid'] ?? data['lawyerId'] ?? "").toString().trim();
+                      
+                      // MULTI-LAWYER COORDINATION: Lead Lawyer OR Assigned Team Member
+                      List assigned = data['assignedLawyers'] ?? [];
+                      bool isAssigned = (leadId == uid.trim()) || assigned.contains(uid.trim());
                       
                       bool isActive = status == 'accepted' || status == 'active';
-                      return isActive && lId == uid.trim();
+                      return isActive && isAssigned;
                     }));
                   }
                 }
@@ -69,7 +73,7 @@ class ActiveCasesScreen extends StatelessWidget {
                     String type = data['caseType'] ?? data['title'] ?? "Active Matter";
                     String clientId = data['clientId'] ?? data['userId'] ?? "";
 
-                    return _buildCaseCard(context, doc.id, name, type, clientId);
+                    return _buildCaseCard(context, doc.id, name, type, clientId, uid!);
                   },
                 );
               },
@@ -95,78 +99,166 @@ class ActiveCasesScreen extends StatelessWidget {
     return controller.stream;
   }
 
-  Widget _buildCaseCard(BuildContext context, String id, String name, String type, String clientId) {
+  Widget _buildCaseCard(BuildContext context, String id, String name, String type, String clientId, String currentLawyerId) {
     return Card(
       elevation: 4,
       margin: const EdgeInsets.only(bottom: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
+      child: StreamBuilder<DocumentSnapshot>(
+        stream: FirebaseFirestore.instance.collection('Case request').doc(id).snapshots(),
+        builder: (context, snap) {
+          // Getting live data from Case Request for team info
+          var caseData = snap.hasData && snap.data!.exists ? snap.data!.data() as Map<String, dynamic> : {};
+          List teamNames = caseData['teamNames'] ?? [];
+          String lawyersText = teamNames.isEmpty ? "" : "Team: ${teamNames.join(', ')}";
+
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(backgroundColor: navyBlue, radius: 22, child: const Icon(Icons.person, color: Colors.white, size: 28)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: navyBlue, fontSize: 18), maxLines: 1, overflow: TextOverflow.ellipsis),
-                      Text(type, style: const TextStyle(fontSize: 14, color: Colors.black54), maxLines: 1, overflow: TextOverflow.ellipsis),
-                    ],
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        CircleAvatar(backgroundColor: navyBlue, radius: 22, child: const Icon(Icons.person, color: Colors.white, size: 28)),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: navyBlue, fontSize: 18)),
+                            Text(type, style: const TextStyle(fontSize: 14, color: Colors.black54)),
+                          ],
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.group_add_rounded, color: goldColor, size: 28),
+                      onPressed: () => _showAddLawyerDialog(context, id, name, type, clientId),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            
-            // Fixed: Using Doc ID directly to avoid "Link/Index Error"
-            StreamBuilder<DocumentSnapshot>(
-              stream: FirebaseFirestore.instance.collection('chat').doc(id).snapshots(),
-              builder: (context, snap) {
-                String lastMsg = "Tap Chat to communicate...";
-                if (snap.hasData && snap.data!.exists) {
-                  var cData = snap.data!.data() as Map<String, dynamic>;
-                  lastMsg = cData['lastMessage'] ?? lastMsg;
-                }
-                return Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  decoration: BoxDecoration(color: Colors.blue.withOpacity(0.05), borderRadius: BorderRadius.circular(10)),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.chat_bubble_outline, size: 14, color: Colors.blue),
-                      const SizedBox(width: 8),
-                      Expanded(child: Text(lastMsg, style: const TextStyle(fontSize: 12, color: Colors.blueGrey, fontStyle: FontStyle.italic), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                    ],
+                
+                if (lawyersText.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(lawyersText, style: TextStyle(color: goldColor, fontSize: 12, fontWeight: FontWeight.bold)),
                   ),
-                );
-              },
-            ),
-            
-            const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Divider(height: 1)),
-            
-            Wrap(
-              spacing: 6,
-              runSpacing: 8,
-              alignment: WrapAlignment.start,
-              children: [
-                _buildActionChip(context, Icons.chat_outlined, "Chat", Colors.blue, () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => ChatScreen(consultationId: id, clientName: name, clientId: clientId)));
-                }),
-                _buildActionChip(context, Icons.gavel, "Hearings", goldColor, () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => HearingDetailsScreen(caseId: id, clientName: name, clientId: clientId)));
-                }),
-                _buildActionChip(context, Icons.assignment_outlined, "Vakalatnama", Colors.teal, () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => WakalatnamaForm(clientId: clientId, clientName: name, requestId: id)));
-                }),
+
+                const SizedBox(height: 12),
+                
+                // Coordination Preview
+                StreamBuilder<DocumentSnapshot>(
+                  stream: FirebaseFirestore.instance.collection('chat').doc(id).snapshots(),
+                  builder: (context, chatSnap) {
+                    String lastMsg = "Communication active...";
+                    if (chatSnap.hasData && chatSnap.data!.exists) {
+                      var cData = chatSnap.data!.data() as Map<String, dynamic>;
+                      lastMsg = cData['lastMessage'] ?? lastMsg;
+                    }
+                    return Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(color: Colors.blue.withOpacity(0.05), borderRadius: BorderRadius.circular(10)),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.chat_bubble_outline, size: 14, color: Colors.blue),
+                          const SizedBox(width: 8),
+                          Expanded(child: Text(lastMsg, style: const TextStyle(fontSize: 12, color: Colors.blueGrey, fontStyle: FontStyle.italic), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+                
+                const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Divider(height: 1)),
+                
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 10,
+                  children: [
+                    _buildActionChip(context, Icons.chat_outlined, "Chat", Colors.blue, () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => ChatScreen(consultationId: id, clientName: name, clientId: clientId)));
+                    }),
+                    _buildActionChip(context, Icons.gavel, "Hearings", goldColor, () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => HearingDetailsScreen(caseId: id, clientName: name, clientId: clientId)));
+                    }),
+                    _buildActionChip(context, Icons.assignment_outlined, "Vakalatnama", Colors.teal, () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => WakalatnamaForm(clientId: clientId, clientName: name, requestId: id)));
+                    }),
+                  ],
+                )
               ],
-            )
-          ],
+            ),
+          );
+        }
+      ),
+    );
+  }
+
+  void _showAddLawyerDialog(BuildContext context, String caseId, String clientName, String caseType, String clientId) {
+    final TextEditingController emailController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Add Team Member"),
+        content: TextField(
+          controller: emailController,
+          decoration: const InputDecoration(hintText: "Enter Lawyer's Email"),
         ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL")),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: navyBlue),
+            onPressed: () async {
+              String email = emailController.text.trim();
+              if (email.isEmpty) return;
+              try {
+                var lawyerQuery = await FirebaseFirestore.instance.collection('lawyers').where('email', isEqualTo: email).limit(1).get();
+                if (lawyerQuery.docs.isNotEmpty) {
+                  String associateId = lawyerQuery.docs.first.id;
+                  String associateName = lawyerQuery.docs.first.get('fullName') ?? "Lawyer";
+                  
+                  // Update Firebase Collections for Coordination
+                  WriteBatch batch = FirebaseFirestore.instance.batch();
+                  
+                  DocumentReference caseRef = FirebaseFirestore.instance.collection('Case request').doc(caseId);
+                  batch.update(caseRef, {
+                    'assignedLawyers': FieldValue.arrayUnion([associateId]),
+                    'teamNames': FieldValue.arrayUnion([associateName])
+                  });
+
+                  DocumentReference chatRef = FirebaseFirestore.instance.collection('chat').doc(caseId);
+                  batch.update(chatRef, {
+                    'users': FieldValue.arrayUnion([associateId])
+                  });
+
+                  // Update/Create Coordination collection (Using batch.set for safety)
+                  DocumentReference coordRef = FirebaseFirestore.instance.collection('coordination').doc(caseId);
+                  batch.set(coordRef, {
+                    'requestId': caseId,
+                    'clientId': clientId,
+                    'clientName': clientName,
+                    'caseType': caseType,
+                    'assignedLawyers': FieldValue.arrayUnion([associateId]),
+                    'updatedAt': FieldValue.serverTimestamp(),
+                    'status': 'active'
+                  }, SetOptions(merge: true));
+
+                  await batch.commit();
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Coordination set! Team member added."), backgroundColor: Colors.green));
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Lawyer not found.")));
+                }
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+              }
+            },
+            child: const Text("ADD"),
+          ),
+        ],
       ),
     );
   }
@@ -174,20 +266,20 @@ class ActiveCasesScreen extends StatelessWidget {
   Widget _buildActionChip(BuildContext context, IconData icon, String label, Color color, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(10),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
           color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(color: color.withOpacity(0.3)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: 14),
-            const SizedBox(width: 4),
-            Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 6),
+            Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
           ],
         ),
       ),

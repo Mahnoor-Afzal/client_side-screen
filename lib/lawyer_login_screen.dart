@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-// Zaroori Imports: Inhe check karein ke file names sahi hain
-import 'Lawyer_dashboard.dart'; // Dashboard file ka naam
+// Zaroori Imports
+import 'Lawyer_dashboard.dart';
 import 'signup_screen.dart';
 import 'forgot_password.dart';
 
@@ -17,6 +17,7 @@ class _LawyerLoginScreenState extends State<LawyerLoginScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _isObscure = true;
+  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -115,29 +116,35 @@ class _LawyerLoginScreenState extends State<LawyerLoginScreen> {
                 width: double.infinity,
                 height: 55,
                 child: ElevatedButton(
-                  onPressed: () async {
+                  onPressed: _isLoading ? null : () async {
+                    if (_emailController.text.trim().isEmpty || _passwordController.text.trim().isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Email aur password lazmi hain.")));
+                      return;
+                    }
+
+                    setState(() => _isLoading = true);
                     try {
-                      // Firebase Login Logic
                       await FirebaseAuth.instance.signInWithEmailAndPassword(
                         email: _emailController.text.trim(),
                         password: _passwordController.text.trim(),
                       );
 
                       if (mounted) {
-                        // FIX: LawyerDashboard use karein (Underscore ke baghair)
                         Navigator.pushReplacement(
                           context,
-                          MaterialPageRoute(builder: (context) =>  LawyerDashboard()),
+                          MaterialPageRoute(builder: (context) => const LawyerDashboard()),
                         );
                       }
                     } on FirebaseAuthException catch (e) {
                       String message = "Login Failed";
-                      if (e.code == 'user-not-found') {
-                        message = "Account nahi mila. Signup karein.";
+                      if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
+                        message = "Email ya password ghalat hai ya account nahi bana.";
                       } else if (e.code == 'wrong-password') {
                         message = "Ghalat password dala hai.";
                       } else if (e.code == 'invalid-email') {
                         message = "Email ka format sahi nahi hai.";
+                      } else {
+                        message = e.message ?? "Login Failed";
                       }
 
                       if (mounted) {
@@ -145,22 +152,20 @@ class _LawyerLoginScreenState extends State<LawyerLoginScreen> {
                           SnackBar(content: Text(message)),
                         );
                       }
-                    } catch (e) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(e.toString())),
-                        );
-                      }
+                    } finally {
+                      if (mounted) setState(() => _isLoading = false);
                     }
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: goldColor,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: const Text(
-                    "LOGIN",
-                    style: TextStyle(color: navyBlue, fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
+                  child: _isLoading 
+                    ? const CircularProgressIndicator(color: navyBlue)
+                    : const Text(
+                        "LOGIN",
+                        style: TextStyle(color: navyBlue, fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
                 ),
               ),
 

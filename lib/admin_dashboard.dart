@@ -35,6 +35,9 @@ class AdminDashboard extends StatelessWidget {
             itemBuilder: (context, index) {
               var doc = snapshot.data!.docs[index];
               var data = doc.data() as Map<String, dynamic>;
+              
+              // Use doc.id as fallback for lawyerId
+              String lawyerId = data['lawyerId'] ?? doc.id;
 
               return Card(
                 elevation: 4,
@@ -55,7 +58,7 @@ class AdminDashboard extends StatelessWidget {
                           Expanded(
                             child: ElevatedButton(
                               style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-                              onPressed: () => _handleRequest(doc.id, data['lawyerId'], true, context),
+                              onPressed: () => _handleRequest(doc.id, lawyerId, true, context),
                               child: const Text("ACCEPT"),
                             ),
                           ),
@@ -63,7 +66,7 @@ class AdminDashboard extends StatelessWidget {
                           Expanded(
                             child: ElevatedButton(
                               style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
-                              onPressed: () => _handleRequest(doc.id, data['lawyerId'], false, context),
+                              onPressed: () => _handleRequest(doc.id, lawyerId, false, context),
                               child: const Text("REJECT"),
                             ),
                           ),
@@ -83,10 +86,11 @@ class AdminDashboard extends StatelessWidget {
   Future<void> _handleRequest(String requestId, String lawyerId, bool isAccepted, BuildContext context) async {
     try {
       if (isAccepted) {
-        // Verify the lawyer in their main document
-        await FirebaseFirestore.instance.collection('lawyers').doc(lawyerId).update({
+        // Force update isVerified and registrationStatus
+        await FirebaseFirestore.instance.collection('lawyers').doc(lawyerId).set({
           'isVerified': true,
-        });
+          'registrationStatus': 'completed',
+        }, SetOptions(merge: true));
       }
 
       // Update the request status

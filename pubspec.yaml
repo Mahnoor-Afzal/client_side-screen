@@ -23,6 +23,7 @@ dependencies:
   share_plus: ^7.2.1
   intl: ^0.18.1
   signature: ^5.4.0
+  universal_html: ^2.3.0
 
 dev_dependencies:
   flutter_test:

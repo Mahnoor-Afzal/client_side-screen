@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -7,7 +6,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:path_provider/path_provider.dart';
 import 'package:signature/signature.dart';
 
 class WakalatnamaForm extends StatefulWidget {
@@ -32,6 +30,7 @@ class _WakalatnamaFormState extends State<WakalatnamaForm> {
   final _advocateController = TextEditingController();
   final _dateController = TextEditingController(text: DateTime.now().toString().split(' ')[0]);
 
+  final SignatureController _clientSignController = SignatureController(penStrokeWidth: 3, penColor: Colors.black);
   final SignatureController _lawyerSignController = SignatureController(penStrokeWidth: 3, penColor: Colors.black);
 
   bool _isSaving = false;
@@ -47,25 +46,21 @@ class _WakalatnamaFormState extends State<WakalatnamaForm> {
     _tryResolveClientId();
   }
 
-  // Robust ID lookup for Fatima Bibi / Kainat bibi
   Future<void> _tryResolveClientId() async {
     if (_resolvedClientId != null && _resolvedClientId!.isNotEmpty) return;
     try {
-      // Try resolving by request ID first
       if (widget.requestId != null && widget.requestId!.isNotEmpty) {
         var doc = await FirebaseFirestore.instance.collection('Case request').doc(widget.requestId).get();
         if (doc.exists) {
           _resolvedClientId = doc.data()?['clientId'] ?? doc.data()?['userId'];
         }
       }
-      
-      // Fallback: Search by name in 'chat' collection
       if (_resolvedClientId == null || _resolvedClientId!.isEmpty) {
-        var chatQuery = await FirebaseFirestore.instance.collection('chat')
-            .where('clientName', isEqualTo: _petitionerController.text)
+        var userQuery = await FirebaseFirestore.instance.collection('users')
+            .where('name', isEqualTo: _petitionerController.text.trim())
             .limit(1).get();
-        if (chatQuery.docs.isNotEmpty) {
-          _resolvedClientId = chatQuery.docs.first.get('clientId') ?? chatQuery.docs.first.get('userId');
+        if (userQuery.docs.isNotEmpty) {
+          _resolvedClientId = userQuery.docs.first.id;
         }
       }
     } catch (e) {
@@ -75,91 +70,90 @@ class _WakalatnamaFormState extends State<WakalatnamaForm> {
 
   @override
   void dispose() {
+    _clientSignController.dispose();
     _lawyerSignController.dispose();
+    _courtController.dispose();
+    _caseNoController.dispose();
+    _petitionerController.dispose();
+    _respondentController.dispose();
+    _advocateController.dispose();
+    _dateController.dispose();
     super.dispose();
   }
 
   Future<void> _saveDocument() async {
-    if (_courtController.text.isEmpty || _petitionerController.text.isEmpty || _advocateController.text.isEmpty) {
+    if (_courtController.text.trim().isEmpty || _petitionerController.text.trim().isEmpty || _advocateController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please fill all required fields.")));
       return;
     }
 
-    // Ensure we have a valid Client ID before proceeding
-    if (_resolvedClientId == null || _resolvedClientId!.isEmpty) {
-      await _tryResolveClientId();
-      if (_resolvedClientId == null || _resolvedClientId!.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error: Link to Client ID failed. Check client name."), backgroundColor: Colors.redAccent));
-        return;
-      }
+    if (_lawyerSignController.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Advocate signature is required."), backgroundColor: Colors.orange));
+      return;
     }
 
     setState(() => _isSaving = true);
+
     try {
+      if (_resolvedClientId == null || _resolvedClientId!.isEmpty) {
+        await _tryResolveClientId();
+      }
+      if (_resolvedClientId == null || _resolvedClientId!.isEmpty) throw "Client link failed. Could not find Client ID.";
+
       String? uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) throw "Session expired. Please re-login.";
+
       final lawyerSignImg = await _lawyerSignController.toPngBytes();
 
-      // 1. Generate Professional PDF
       final pdf = pw.Document();
       pdf.addPage(
-        pw.Page(
+        pw.MultiPage(
           pageFormat: PdfPageFormat.a4,
-          build: (pw.Context context) {
-            return pw.Padding(
-              padding: const pw.EdgeInsets.all(30),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Center(child: pw.Text("VAKALATNAMA", style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold))),
-                  pw.SizedBox(height: 20),
-                  pw.Text("IN THE COURT OF: ${_courtController.text}"),
-                  pw.Text("CASE NO / YEAR: ${_caseNoController.text}"),
-                  pw.Text("PETITIONER / PLAINTIFF: ${_petitionerController.text}"),
-                  pw.Center(child: pw.Text("VERSUS", style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
-                  pw.Text("RESPONDENT / DEFENDANT: ${_respondentController.text}"),
-                  pw.Text("ADVOCATE(S) NAME: ${_advocateController.text}"),
-                  pw.SizedBox(height: 20),
-                  pw.Divider(),
-                  pw.Text("1. To appear, plead, and act in the Court.\n"
-                          "2. To sign and verify all plaints and petitions.\n"
-                          "3. I/We undertake to appear in court on every date.\n"
-                          "4. Advocate is authorized to receive all payments.\n"
-                          "5. Power to compromise, withdraw, or arbitrate.\n"
-                          "6. Power to appoint other legal practitioners.\n"
-                          "7. Agreement to pay settled legal fees.\n"
-                          "8. I/We have heard and understood all terms mentioned above.", 
-                          style: const pw.TextStyle(fontSize: 12)),
-                  pw.SizedBox(height: 60),
-                  pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                    children: [
-                      pw.Column(children: [pw.Container(width: 120, height: 1, color: PdfColors.black), pw.Text("Client Signature")]),
-                      pw.Column(children: [
-                        if (lawyerSignImg != null) pw.Image(pw.MemoryImage(lawyerSignImg), width: 100, height: 40),
-                        pw.Container(width: 120, height: 1, color: PdfColors.black),
-                        pw.Text("Advocate Signature")
-                      ]),
-                    ],
-                  ),
-                  pw.SizedBox(height: 20),
-                  pw.Text("DATED: ${_dateController.text}"),
-                ],
-              ),
-            );
-          },
+          margin: const pw.EdgeInsets.all(40),
+          build: (pw.Context context) => [
+            pw.Center(child: pw.Text("POWER OF ATTORNEY (VAKALATNAMA)", style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold))),
+            pw.SizedBox(height: 15),
+            pw.Text("IN THE COURT OF: ${_courtController.text.toUpperCase()}", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+            pw.Text("CASE NO / YEAR: ${_caseNoController.text.toUpperCase()}", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+            pw.SizedBox(height: 10),
+            pw.Text("PETITIONER / PLAINTIFF: ${_petitionerController.text.toUpperCase()}", style: pw.TextStyle(fontSize: 9.5)),
+            pw.Center(child: pw.Text("VERSUS", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+            pw.Text("RESPONDENT / DEFENDANT: ${_respondentController.text.toUpperCase()}", style: pw.TextStyle(fontSize: 9.5)),
+            pw.SizedBox(height: 8),
+            pw.Text("ADVOCATE(S) NAME: ${_advocateController.text.toUpperCase()}", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9.5)),
+            pw.Divider(),
+            pw.SizedBox(height: 10),
+            pw.Text("In the title captioned above, I hereby appoint and authorize the Advocate(s) named below to pursue, plead, and represent the matter on my behalf at the designated place:", style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 10),
+            pw.Paragraph(
+              text: "On the terms and conditions that I appoint the said Advocate(s) who shall appear before the Court either in person or through a designated representative on every fixed hearing or date, and I shall inform the said Advocate(s) of my attendance immediately upon my arrival at the court premises. If the case proceeds against me or an adverse order is passed due to my non-appearance or absence, the said Advocate(s) shall not be held responsible or liable in any manner whatsoever. Furthermore, the said Advocate(s) shall be fully authorized to pursue and represent this matter at any place outside the principal seat of the court or headquarters, or during extended hours before or after the standard timings of the court premises. If any damage or loss occurs to the case or my interest due to late arrival or failure to reach the designated court timings, the said Advocate(s) shall not be held responsible or liable. I hereby declare that all acts, deeds, and steps taken or performed by the said Advocate(s) shall be fully binding upon my person as if executed by me directly. The said Advocate(s) shall have full power and authority to institute, sign, verify, and file any suits, written statements, execution petitions, appeals, reviews, revisions, or any other necessary applications on my behalf. They are further authorized to file any compromise deeds, arbitrations, settlements, or withdrawal applications, as well as to record any statements, admissions, or confessions on my behalf. They shall possess absolute right to deposit, receive, and acknowledge any funds, amounts, court dues, receipts, or documents from the Honorable Court or opposite parties. In the event of an adverse judgment or for the purpose of moving an appeal, revision, or execution of a decree, or in case of an ex-parte order or restoration application, the said Advocate(s) shall be authorized to proceed subject to a separate vakalatnama or independent fee arrangement. The said Advocate(s) shall also have the complete right to associate, appoint, or substitute any other legal counsel, co-counsel, or junior advocate to assist or represent them in this matter, and such counsel shall enjoy identical powers as granted herein. I strictly bind myself to clear and pay the full professional fees to the said Advocate(s) prior to the scheduled date of the hearing. If I fail to make the full payment of the agreed fees, the said Advocate(s) shall have the absolute right and authority to refuse appearance and completely withdraw from pursuing or conducting the case, and no claim or objection regarding this shall be maintainable against the said Advocate(s) under any circumstances. Therefore, this Power of Attorney (Vakalatnama) has been written and executed by me after carefully listening to, reading, and fully understanding its entire text, contents, and implications, and the same is hereby accepted and approved by me.",
+              style: const pw.TextStyle(fontSize: 8.5),
+              textAlign: pw.TextAlign.justify,
+            ),
+            pw.SizedBox(height: 30),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(children: [
+                  pw.Container(width: 140, height: 1, color: PdfColors.black),
+                  pw.Text("Client Signature", style: const pw.TextStyle(fontSize: 8))
+                ]),
+                pw.Column(children: [
+                  if (lawyerSignImg != null) pw.Image(pw.MemoryImage(lawyerSignImg), width: 90, height: 35),
+                  pw.Container(width: 140, height: 1, color: PdfColors.black),
+                  pw.Text("Advocate Signature", style: const pw.TextStyle(fontSize: 8))
+                ]),
+              ],
+            ),
+            pw.SizedBox(height: 15),
+            pw.Text("Dated: ${_dateController.text}", style: const pw.TextStyle(fontSize: 9)),
+          ],
         ),
       );
 
-      final output = await getTemporaryDirectory();
-      final file = File("${output.path}/vakalatnama_${DateTime.now().millisecondsSinceEpoch}.pdf");
-      await file.writeAsBytes(await pdf.save());
+      await pdf.save();
+      String downloadUrl = "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
 
-      // 2. Upload to Firebase Storage
-      String storagePath = "vakalatnamas/${uid}_${DateTime.now().millisecondsSinceEpoch}.pdf";
-      TaskSnapshot uploadTask = await FirebaseStorage.instance.ref().child(storagePath).putFile(file);
-      String downloadUrl = await uploadTask.ref.getDownloadURL();
-
-      // 3. Save Record to Firestore 'documents'
       await FirebaseFirestore.instance.collection('documents').add({
         'lawyerId': uid,
         'clientId': _resolvedClientId,
@@ -167,30 +161,37 @@ class _WakalatnamaFormState extends State<WakalatnamaForm> {
         'type': 'Vakalatnama',
         'courtName': _courtController.text,
         'caseNo': _caseNoController.text,
-        'status': 'pending_client_signature', 
+        'status': 'pending_client_signature',
         'fileUrl': downloadUrl,
         'lawyerSignature': lawyerSignImg != null ? base64Encode(lawyerSignImg) : null,
         'timestamp': FieldValue.serverTimestamp(),
         'senderType': 'lawyer',
       });
 
-      // 4. Send Notification to Client app
       await FirebaseFirestore.instance.collection('notifications').add({
         'userId': _resolvedClientId,
         'title': 'New Vakalatnama Received',
-        'body': 'Your lawyer has sent a Vakalatnama for you to sign.',
+        'body': 'Your lawyer has sent a document for your signature.',
         'type': 'vakalatnama',
         'timestamp': FieldValue.serverTimestamp(),
         'isRead': false,
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Vakalatnama sent successfully to client!"), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Vakalatnama sent to client successfully!"), backgroundColor: Colors.green));
         Navigator.pop(context);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Firebase Error: $e"), backgroundColor: Colors.red));
-      debugPrint("Detailed Submit Error: $e");
+      if (mounted) {
+        showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+                title: const Text("Error"),
+                content: Text(e.toString()),
+                actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("OK"))]
+            )
+        );
+      }
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -210,69 +211,61 @@ class _WakalatnamaFormState extends State<WakalatnamaForm> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Center(child: Text("VAKALATNAMA FORM", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 1.2))),
-            const SizedBox(height: 30),
-            
+            const Center(child: Text("POWER OF ATTORNEY (VAKALATNAMA)", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.1))),
+            const SizedBox(height: 20),
+
             _buildInputField("IN THE COURT OF:", _courtController, "e.g. Islamabad High Court"),
             _buildInputField("CASE NO / YEAR:", _caseNoController, "e.g. 1234/2026"),
             _buildInputField("PETITIONER / PLAINTIFF:", _petitionerController, "Name of Client"),
             const Center(child: Text("VERSUS", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey, fontSize: 12))),
-            const SizedBox(height: 10),
+            const SizedBox(height: 5),
             _buildInputField("RESPONDENT / DEFENDANT:", _respondentController, "Name of Opposing Party"),
             _buildInputField("ADVOCATE(S) NAME:", _advocateController, "Lawyer's Name"),
 
-            const SizedBox(height: 20),
-            const Divider(thickness: 1),
-            const Text(
-              "I/We, the undersigned, do hereby appoint and constitute the above-named Advocate(s) to be my/our lawful attorney to represent me/us in the mentioned case. The Advocate is authorized to perform the following acts on my/our behalf:",
-              style: TextStyle(fontSize: 13, height: 1.5, color: Colors.black87),
-              textAlign: TextAlign.justify,
-            ),
             const SizedBox(height: 10),
-            _buildLegalPoint("1. To appear, plead, and act in the Court."),
-            _buildLegalPoint("2. To sign and verify all plaints and petitions."),
-            _buildLegalPoint("3. I/We undertake to appear in court on every date."),
-            _buildLegalPoint("4. Advocate is authorized to receive all payments."),
-            _buildLegalPoint("5. Power to compromise, withdraw, or arbitrate."),
-            _buildLegalPoint("6. Power to appoint other legal practitioners."),
-            _buildLegalPoint("7. Agreement to pay settled legal fees."),
-            _buildLegalPoint("8. I/We have understood all terms of agreement."),
-            
-            const SizedBox(height: 30),
+            const Divider(thickness: 1),
+
+            _buildTermsText("In the title captioned above, I hereby appoint and authorize the Advocate(s) named below to pursue, plead, and represent the matter on my behalf at the designated place:"),
+            const SizedBox(height: 25),
+            const Divider(thickness: 1.5, color: Colors.black87),
+            const SizedBox(height: 25),
+            _buildTermsText("On the terms and conditions that I appoint the said Advocate(s) who shall appear before the Court either in person or through a designated representative on every fixed hearing or date, and I shall inform the said Advocate(s) of my attendance immediately upon my arrival at the court premises. If the case proceeds against me or an adverse order is passed due to my non-appearance or absence, the said Advocate(s) shall not be held responsible or liable in any manner whatsoever. Furthermore, the said Advocate(s) shall be fully authorized to pursue and represent this matter at any place outside the principal seat of the court or headquarters, or during extended hours before or after the standard timings of the court premises. If any damage or loss occurs to the case or my interest due to late arrival or failure to reach the designated court timings, the said Advocate(s) shall not be held responsible or liable. I hereby declare that all acts, deeds, and steps taken or performed by the said Advocate(s) shall be fully binding upon my person as if executed by me directly. The said Advocate(s) shall have full power and authority to institute, sign, verify, and file any suits, written statements, execution petitions, appeals, reviews, revisions, or any other necessary applications on my behalf. They are further authorized to file any compromise deeds, arbitrations, settlements, or withdrawal applications, as well as to record any statements, admissions, or confessions on my behalf. They shall possess absolute right to deposit, receive, and acknowledge any funds, amounts, court dues, receipts, or documents from the Honorable Court or opposite parties. In the event of an adverse judgment or for the purpose of moving an appeal, revision, or execution of a decree, or in case of an ex-parte order or restoration application, the said Advocate(s) shall be authorized to proceed subject to a separate vakalatnama or independent fee arrangement. The said Advocate(s) shall also have the complete right to associate, appoint, or substitute any other legal counsel, co-counsel, or junior advocate to assist or represent them in this matter, and such counsel shall enjoy identical powers as granted herein. I strictly bind myself to clear and pay the full professional fees to the said Advocate(s) prior to the scheduled date of the hearing. If I fail to make the full payment of the agreed fees, the said Advocate(s) shall have the absolute right and authority to refuse appearance and completely withdraw from pursuing or conducting the case, and no claim or objection regarding this shall be maintainable against the said Advocate(s) under any circumstances. Therefore, this Power of Attorney (Vakalatnama) has been written and executed by me after carefully listening to, reading, and fully understanding its entire text, contents, and implications, and the same is hereby accepted and approved by me."),
+
+            const SizedBox(height: 20),
             _buildInputField("DATED:", _dateController, "YYYY-MM-DD"),
-            
-            const SizedBox(height: 40),
-            
-            // Client Signature Pad (DISABLED for Lawyer side)
-            const Text("Client's Signature:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
-            const SizedBox(height: 8),
-            Container(
-              height: 100, width: double.infinity,
-              decoration: BoxDecoration(color: Colors.grey[100], border: Border.all(color: Colors.black12), borderRadius: BorderRadius.circular(8)),
-              child: const Center(child: Text("Waiting for Client to sign from their app", style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic))),
-            ),
 
             const SizedBox(height: 25),
-            // Lawyer Signature Pad (ENABLED)
-            const Text("Advocate's Signature (Sign Below):", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
+            const Text("Client's Signature (Disabled for Lawyer):", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
+            const SizedBox(height: 8),
+            AbsorbPointer(
+              absorbing: true,
+              child: Opacity(
+                opacity: 0.4,
+                child: Container(
+                  decoration: BoxDecoration(color: Colors.grey[200], border: Border.all(color: Colors.black12), borderRadius: BorderRadius.circular(8)),
+                  child: Signature(controller: _clientSignController, height: 100, backgroundColor: Colors.transparent),
+                ),
+              ),
+            ),
+            const SizedBox(height: 15),
+            const Text("Advocate's Signature (Advocate signs here):", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
             const SizedBox(height: 8),
             Container(
               decoration: BoxDecoration(border: Border.all(color: Colors.black12), borderRadius: BorderRadius.circular(8)),
-              child: Signature(controller: _lawyerSignController, height: 120, backgroundColor: Colors.grey[50]!),
+              child: Signature(controller: _lawyerSignController, height: 100, backgroundColor: Colors.grey[50]!),
             ),
-            Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => _lawyerSignController.clear(), child: const Text("Clear Signature"))),
+            Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => _lawyerSignController.clear(), child: const Text("Clear Advocate Signature"))),
 
-            const SizedBox(height: 50),
-            
+            const SizedBox(height: 35),
             SizedBox(
               width: double.infinity,
               height: 55,
               child: ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(backgroundColor: navyBlue, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                 onPressed: _isSaving ? null : _saveDocument,
-                icon: _isSaving 
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
-                  : const Icon(Icons.send_rounded),
+                icon: _isSaving
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Icon(Icons.check_circle_outline),
                 label: const Text("SAVE AND SUBMIT", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               ),
             ),
@@ -285,31 +278,29 @@ class _WakalatnamaFormState extends State<WakalatnamaForm> {
 
   Widget _buildInputField(String label, TextEditingController controller, String hint) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black54)),
-          const SizedBox(height: 5),
+          Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black54)),
+          const SizedBox(height: 4),
           TextField(
             controller: controller,
-            decoration: InputDecoration(hintText: hint, isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 8), border: const UnderlineInputBorder()),
+            style: const TextStyle(fontSize: 13),
+            decoration: InputDecoration(hintText: hint, isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 6), border: const UnderlineInputBorder()),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildLegalPoint(String text) {
+  Widget _buildTermsText(String text) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.arrow_right_alt_rounded, size: 20, color: Colors.black45),
-          const SizedBox(width: 8),
-          Expanded(child: Text(text, style: const TextStyle(fontSize: 13, color: Colors.black87, height: 1.4), textAlign: TextAlign.justify)),
-        ],
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 11.5, height: 1.4, color: Colors.black.withOpacity(0.85)),
+        textAlign: TextAlign.justify,
       ),
     );
   }

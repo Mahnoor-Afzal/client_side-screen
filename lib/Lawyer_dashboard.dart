@@ -10,6 +10,10 @@ import 'active_cases_screen.dart';
 import 'consultation_screen.dart';
 import 'documents_screen.dart';
 import 'hearings_list_screen.dart';
+import 'coordination_screen.dart';
+import 'lawyer_profile_screen.dart'; 
+import 'lawyer_license_screen.dart';
+import 'professional_details_screen.dart';
 
 class LawyerDashboard extends StatefulWidget {
   const LawyerDashboard({super.key});
@@ -22,6 +26,7 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
   User? get currentUser => FirebaseAuth.instance.currentUser;
   StreamSubscription? _sub1;
   StreamSubscription? _sub2;
+  StreamSubscription? _statusSub; 
   final Set<String> _notifiedRequestIds = {}; 
 
   final Color navyBlue = const Color(0xFF101D3D);
@@ -31,20 +36,36 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
   @override
   void initState() {
     super.initState();
-    _initNotificationListener();
+    _initVerificationListener();
   }
 
   @override
   void dispose() {
     _sub1?.cancel();
     _sub2?.cancel();
+    _statusSub?.cancel();
     super.dispose();
   }
 
-  void _initNotificationListener() {
+  void _initVerificationListener() {
     final uid = currentUser?.uid;
     if (uid == null) return;
-    
+
+    _statusSub = FirebaseFirestore.instance
+        .collection('lawyers')
+        .doc(uid)
+        .snapshots()
+        .listen((doc) {
+      if (doc.exists) {
+        bool verified = (doc.data()?['isVerified'] == true || doc.data()?['isVerified']?.toString() == 'true');
+        if (verified && _sub1 == null) {
+          _startNotificationListeners(uid);
+        }
+      }
+    });
+  }
+
+  void _startNotificationListeners(String uid) {
     _sub1 = FirebaseFirestore.instance
         .collection('Case request')
         .where('status', isEqualTo: 'pending')
@@ -134,9 +155,8 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
       if (status == 'accepted') {
         var data = doc.data() as Map<String, dynamic>;
         String clientId = data['clientId'] ?? data['userId'] ?? "";
-        String clientName = data['clientName'] ?? data['fullName'] ?? "Kainat bibi";
+        String clientName = data['clientName'] ?? data['fullName'] ?? "Client";
 
-        // Create Chat entry with type 'case' to avoid mixing with consultations
         await FirebaseFirestore.instance.collection('chat').doc(doc.id).set({
           'requestId': doc.id,
           'lawyerid': lawyerId,
@@ -145,18 +165,29 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
           'clientName': clientName,
           'topic': data['caseType'] ?? data['title'] ?? 'Legal Matter',
           'status': 'Active',
-          'type': 'case', // Strictly marked as case
+          'type': 'case',
           'lastMessage': 'Case accepted. Chat started.',
           'lastMessageTime': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
           'users': [clientId, lawyerId],
         }, SetOptions(merge: true));
 
+        await FirebaseFirestore.instance.collection('coordination').doc(doc.id).set({
+          'requestId': doc.id,
+          'leadLawyerId': lawyerId,
+          'clientId': clientId,
+          'clientName': clientName,
+          'caseType': data['caseType'] ?? data['title'] ?? 'Legal Matter',
+          'assignedLawyers': [lawyerId],
+          'createdAt': FieldValue.serverTimestamp(),
+          'status': 'active'
+        }, SetOptions(merge: true));
+
         if (clientId.isNotEmpty) {
           await FirebaseFirestore.instance.collection('notifications').add({
             'userId': clientId,
             'title': 'Case Accepted!',
-            'body': 'Your lawyer has accepted the case. You can start chatting.',
+            'body': 'Your lawyer has accepted the case. Coordination started.',
             'type': 'chat_enabled',
             'requestId': doc.id,
             'timestamp': FieldValue.serverTimestamp(),
@@ -173,6 +204,31 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
 
   @override
   Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return const LoginSelectionScreen();
+    }
+
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('lawyers').doc(user.uid).snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+
+        String name = "Lawyer";
+        if (snapshot.hasData && snapshot.data!.exists) {
+          var data = snapshot.data!.data() as Map<String, dynamic>?;
+          name = data?['fullName'] ?? "Lawyer";
+        }
+
+        // Direct Dashboard: Setup logic removed as requested
+        return _buildVerifiedDashboard(name);
+      },
+    );
+  }
+
+  Widget _buildVerifiedDashboard(String name) {
     return Scaffold(
       backgroundColor: lightGrey,
       appBar: AppBar(
@@ -192,23 +248,12 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
                   backgroundColor: Colors.white,
                   child: Icon(Icons.person, size: 50, color: Color(0xFF101D3D)),
                 ),
-                accountName: StreamBuilder<DocumentSnapshot>(
-                  stream: FirebaseFirestore.instance.collection('lawyers').doc(currentUser?.uid).snapshots(),
-                  builder: (context, snapshot) {
-                    String name = "Lawyer";
-                    bool verified = false;
-                    if (snapshot.hasData && snapshot.data!.exists) {
-                      var data = snapshot.data!.data() as Map<String, dynamic>?;
-                      name = data?['fullName'] ?? "Lawyer";
-                      verified = data?['isVerified'] ?? false;
-                    }
-                    return Row(
-                      children: [
-                        Flexible(child: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white), overflow: TextOverflow.ellipsis)),
-                        if (verified) ...[const SizedBox(width: 5), const Icon(Icons.verified, color: Colors.blue, size: 18)]
-                      ],
-                    );
-                  },
+                accountName: Row(
+                  children: [
+                    Flexible(child: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white), overflow: TextOverflow.ellipsis)),
+                    const SizedBox(width: 5),
+                    const Icon(Icons.verified, color: Colors.blue, size: 18)
+                  ],
                 ),
                 accountEmail: Text(currentUser?.email ?? "", style: const TextStyle(color: Colors.white70)),
               ),
@@ -219,6 +264,7 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
                     _buildDrawerItem(Icons.dashboard, "Dashboard", onTap: () => Navigator.pop(context)),
                     _buildDrawerItem(Icons.assignment_ind, "New Requests", onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const CaseRequestsScreen()))),
                     _buildDrawerItem(Icons.check_circle, "Active Cases", onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ActiveCasesScreen()))),
+                    _buildDrawerItem(Icons.group, "Lawyer Coordination", onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const CoordinationScreen()))),
                     _buildDrawerItem(Icons.gavel, "Hearings", onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const HearingsListScreen()))),
                     _buildDrawerItem(Icons.forum, "Consultations", onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ConsultationScreen()))),
                     const Divider(color: Colors.white24),
@@ -243,29 +289,18 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
                 color: navyBlue,
                 borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(30), bottomRight: Radius.circular(30)),
               ),
-              child: StreamBuilder<DocumentSnapshot>(
-                stream: FirebaseFirestore.instance.collection('lawyers').doc(currentUser?.uid).snapshots(),
-                builder: (context, snapshot) {
-                  String name = "Lawyer";
-                  bool verified = false;
-                  if (snapshot.hasData && snapshot.data!.exists) {
-                    var data = snapshot.data!.data() as Map<String, dynamic>?;
-                    name = data?['fullName'] ?? "Lawyer";
-                    verified = data?['isVerified'] ?? false;
-                  }
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text("Hello,", style: TextStyle(color: Colors.white70, fontSize: 16)),
+                  Row(
                     children: [
-                      const Text("Hello,", style: TextStyle(color: Colors.white70, fontSize: 16)),
-                      Row(
-                        children: [
-                          Flexible(child: Text(name, style: TextStyle(color: goldColor, fontSize: 24, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
-                          if (verified) ...[const SizedBox(width: 8), const Icon(Icons.verified, color: Colors.blue, size: 24)]
-                        ],
-                      ),
+                      Flexible(child: Text(name, style: TextStyle(color: goldColor, fontSize: 24, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.verified, color: Colors.blue, size: 24)
                     ],
-                  );
-                },
+                  ),
+                ],
               ),
             ),
             Padding(
@@ -292,9 +327,10 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
                     crossAxisSpacing: 15,
                     children: [
                       _buildMenuTile(icon: Icons.assignment_ind, title: "Case Requests", color: Colors.indigo, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const CaseRequestsScreen()))),
-                      _buildMenuTile(icon: Icons.folder_shared, title: "Documents", color: Colors.teal, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const DocumentsScreen()))),
+                      _buildMenuTile(icon: Icons.group, title: "Coordination", color: Colors.deepPurple, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const CoordinationScreen()))),
                       _buildMenuTile(icon: Icons.gavel, title: "Hearings", color: Colors.amber[900]!, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const HearingsListScreen()))),
                       _buildMenuTile(icon: Icons.forum, title: "Consultations", color: Colors.green, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ConsultationScreen()))),
+                      _buildMenuTile(icon: Icons.folder_shared, title: "Documents", color: Colors.teal, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const DocumentsScreen()))),
                     ],
                   ),
                 ],
@@ -338,9 +374,14 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
                   count += snap.docs.where((doc) {
                     var data = doc.data() as Map<String, dynamic>;
                     String s = (data['status'] ?? "pending").toString().toLowerCase().trim();
+                    List assigned = data['assignedLawyers'] ?? [];
                     String lId = (data['lawyerid'] ?? data['lawyerId'] ?? "").toString().trim();
-                    if (doc.reference.parent.id == 'suit_a_file_request') return s == status;
-                    return s == status && lId == currentUser?.uid;
+                    bool isMine = (lId == currentUser?.uid) || assigned.contains(currentUser?.uid);
+
+                    if (doc.reference.parent.id == 'suit_a_file_request') {
+                      return (s == 'active' || s == 'accepted') && isMine;
+                    }
+                    return s == status && isMine;
                   }).length;
                 }
               }

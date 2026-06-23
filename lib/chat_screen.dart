@@ -32,7 +32,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _fetchLawyerName();
   }
 
-  // Fetch lawyer's name to sync with client dashboard
   void _fetchLawyerName() async {
     if (currentUserId == null) return;
     var doc = await FirebaseFirestore.instance.collection('lawyers').doc(currentUserId).get();
@@ -53,30 +52,26 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       DocumentReference chatDoc = FirebaseFirestore.instance.collection('chat').doc(chatId);
       
-      // 1. Save to sub-collection for history
+      // Standard message structure for both Client and Lawyer
       await chatDoc.collection('messages').add({
         'text': text,
         'senderId': currentUserId,
+        'senderName': _lawyerName ?? "Lawyer",
         'timestamp': FieldValue.serverTimestamp(),
       });
 
-      // 2. Update parent document for Client Dashboard (Syncs EVERYTHING)
+      // Update metadata for lists
       await chatDoc.set({
         'lastMessage': text,
         'lastMessageTime': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
-        'users': [widget.clientId ?? "", currentUserId], // From your snippet
-        'lawyerid': currentUserId,
-        'lawyerId': currentUserId,
-        'lawyerName': _lawyerName ?? "Lawyer", // Important for client dash
-        'clientId': widget.clientId ?? "",
-        'clientName': widget.clientName,
+        'users': FieldValue.arrayUnion([currentUserId, widget.clientId]),
         'status': 'Active',
       }, SetOptions(merge: true));
 
       _scrollToBottom();
     } catch (e) {
-      debugPrint("Sync Error: $e");
+      debugPrint("Chat Sync Error: $e");
     }
   }
 
@@ -104,7 +99,7 @@ class _ChatScreenState extends State<ChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(widget.clientName, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
-            const Text("Online Chat", style: TextStyle(color: Colors.greenAccent, fontSize: 11)),
+            const Text("Team Communication", style: TextStyle(color: Colors.greenAccent, fontSize: 11)),
           ],
         ),
       ),
@@ -182,7 +177,7 @@ class _ChatScreenState extends State<ChatScreen> {
               child: TextField(
                 controller: _messageController,
                 decoration: InputDecoration(
-                  hintText: "Reply to ${widget.clientName}...",
+                  hintText: "Type a message...",
                   filled: true,
                   fillColor: Colors.grey[100],
                   contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
