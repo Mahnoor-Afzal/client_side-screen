@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'lawyer_profile_screen.dart';
+import 'lawyer_profile_screen.dart'; // Seedha Profile Setup par bhejne ke liye
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -30,28 +30,31 @@ class _SignUpScreenState extends State<SignUpScreen> {
           password: _passwordController.text.trim(),
         );
 
-        // Check if user already exists in Firestore to prevent overwriting 'isVerified'
-        DocumentSnapshot userDoc = await FirebaseFirestore.instance.collection('lawyers').doc(userCredential.user!.uid).get();
-
-        if (!userDoc.exists) {
-          await FirebaseFirestore.instance.collection('lawyers').doc(userCredential.user!.uid).set({
-            'fullName': _nameController.text.trim(),
-            'email': _emailController.text.trim(),
-            'isVerified': false, // Default for new users
-            'role': 'lawyer',
-            'registrationStatus': 'incomplete',
-            'createdAt': FieldValue.serverTimestamp(),
-          });
-        }
+        // Firestore mein record save karna - status 'incomplete' rakha hai
+        await FirebaseFirestore.instance.collection('lawyers').doc(userCredential.user!.uid).set({
+          'fullName': _nameController.text.trim(),
+          'email': _emailController.text.trim(),
+          'isVerified': false,
+          'role': 'lawyer',
+          'registrationStatus': 'incomplete', 
+          'createdAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
 
         if (mounted) {
-          Navigator.pushReplacement(
+          // Signup ke foran baad Profile Setup par bhej rahe hain
+          Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(builder: (context) => const LawyerProfileScreen()),
+            (route) => false,
           );
         }
       } on FirebaseAuthException catch (e) {
-        String msg = e.code == 'email-already-in-use' ? "This email is already registered." : (e.message ?? "Error");
+        String msg = "Signup Failed";
+        if (e.code == 'email-already-in-use') {
+          msg = "Ye email pehle se registered hai.";
+        } else {
+          msg = e.message ?? "Error";
+        }
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.redAccent));
       } finally {
         if (mounted) setState(() => _isLoading = false);

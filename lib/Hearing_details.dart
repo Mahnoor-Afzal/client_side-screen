@@ -9,8 +9,8 @@ class HearingDetailsScreen extends StatefulWidget {
   final String? clientId;
 
   const HearingDetailsScreen({
-    super.key, 
-    required this.caseId, 
+    super.key,
+    required this.caseId,
     this.clientName = "Client",
     this.clientId,
   });
@@ -27,7 +27,7 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
   String _status = 'Upcoming';
   bool _isLoading = false;
   bool _isFetching = true;
-  String? _resolvedClientId; 
+  String? _resolvedClientId;
 
   final Color navyBlue = const Color(0xFF101D3D);
   final Color goldColor = const Color(0xFFC5A358);
@@ -68,10 +68,10 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
         if (chatDoc.exists) {
           _resolvedClientId = chatDoc.data()?['clientId'] ?? chatDoc.data()?['userId'];
         }
-        
+
         // Agar ID abhi bhi nahi mili, client ke naam se lookup karein
         if (_resolvedClientId == null || _resolvedClientId!.isEmpty) {
-           var chatQuery = await FirebaseFirestore.instance.collection('chat')
+          var chatQuery = await FirebaseFirestore.instance.collection('chat')
               .where('clientName', isEqualTo: widget.clientName).limit(1).get();
           if (chatQuery.docs.isNotEmpty) {
             _resolvedClientId = chatQuery.docs.first.get('clientId') ?? chatQuery.docs.first.get('userId');
@@ -86,10 +86,14 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
   }
 
   Future<void> _selectDate(BuildContext context) async {
+    final DateTime now = DateTime.now();
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2000), 
+      initialDate: _dateController.text.isNotEmpty
+          ? DateFormat('yyyy-MM-dd').parse(_dateController.text)
+          : now,
+      // ✨ Only this part changed: firstDate is set to today so previous dates are disabled
+      firstDate: DateTime(now.year, now.month, now.day),
       lastDate: DateTime(2101),
       builder: (context, child) => Theme(
         data: Theme.of(context).copyWith(
@@ -137,10 +141,10 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
     setState(() => _isLoading = true);
     try {
       String? uid = FirebaseAuth.instance.currentUser?.uid;
-      
+
       final hearingData = {
         'case_id': widget.caseId,
-        'clientId': _resolvedClientId, 
+        'clientId': _resolvedClientId,
         'userId': _resolvedClientId,   // Support both fields
         'client_name': widget.clientName,
         'lawyerid': uid?.trim(),
