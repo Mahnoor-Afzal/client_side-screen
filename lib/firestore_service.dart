@@ -41,11 +41,13 @@ class FirestoreService {
     return controller.stream;
   }
 
-  // --- Case Management (THIS FIXES THE ERROR IN MONITOR CASES) ---
+  // --- Case Management ---
   Stream<List<Map<String, dynamic>>> getCases() {
     return _db.collection('Case request').snapshots().map((s) => 
       s.docs.map((d) => {'id': d.id, ...d.data()}).toList());
   }
+
+  Stream<List<Map<String, dynamic>>> getCaseRequests() => getCases(); // Added for consistency with case_requests.dart
 
   // --- Complaints Logic (Matching Image Structure) ---
   Stream<List<Map<String, dynamic>>> getComplaints() {

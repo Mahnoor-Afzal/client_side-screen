@@ -1,96 +1,93 @@
 import 'package:flutter/material.dart';
 import 'firestore_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'verify_lawyers.dart'; // To reuse the LawyerProfileView
 
 class VerifiedLawyers extends StatelessWidget {
   const VerifiedLawyers({super.key});
 
-  final Color navyBackground = const Color(0xFF0F172A);
-  final Color goldAccent = const Color(0xFFC7A15E);
-  final Color cardNavy = const Color(0xFF1E293B);
-
   @override
   Widget build(BuildContext context) {
-    final FirestoreService firestoreService = FirestoreService();
+    const Color navyBackground = Color(0xFF0F172A);
+    const Color goldAccent = Color(0xFFC7A15E);
+    const Color cardNavy = Color(0xFF1E293B);
 
     return Scaffold(
       backgroundColor: navyBackground,
       appBar: AppBar(
         backgroundColor: cardNavy,
-        title: Text("Verified Lawyers", style: TextStyle(color: goldAccent, fontWeight: FontWeight.bold)),
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: goldAccent),
-          onPressed: () => Navigator.pop(context),
-        ),
+        elevation: 0,
+        iconTheme: const IconThemeData(color: goldAccent),
+        title: const Text("Verified Lawyers", 
+          style: TextStyle(color: goldAccent, fontWeight: FontWeight.bold)),
       ),
-      body: StreamBuilder<List<Map<String, dynamic>>>(
-        stream: firestoreService.getVerifiedLawyers(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+      body: _buildLawyerList(context),
+    );
+  }
+
+  Widget _buildLawyerList(BuildContext context) {
+    const String collection = 'verified_lawyers';
+    const Color goldAccent = Color(0xFFC7A15E);
+    const Color cardNavy = Color(0xFF1E293B);
+    
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection(collection)
+          .orderBy('createdAt', descending: true) 
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(color: goldAccent));
+        }
+        
+        if (snapshot.hasError) {
+          if (snapshot.error.toString().contains('index')) {
+             return Center(child: Padding(
+               padding: const EdgeInsets.all(20.0),
+               child: Text("Sorting error: Please create a Firestore index for 'createdAt' in $collection collection.\n\n${snapshot.error}", 
+               style: const TextStyle(color: Colors.redAccent, fontSize: 12), textAlign: TextAlign.center),
+             ));
           }
-          if (snapshot.hasError) {
-            return Center(child: Text("Error: ${snapshot.error}", style: const TextStyle(color: Colors.white)));
-          }
-          final lawyers = snapshot.data ?? [];
+          return Center(child: Text("Error: ${snapshot.error}", style: const TextStyle(color: Colors.white)));
+        }
 
-          if (lawyers.isEmpty) {
-            return const Center(child: Text("No verified lawyers found", style: TextStyle(color: Colors.white54)));
-          }
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return const Center(child: Text("No verified lawyers found", 
+            style: TextStyle(color: Colors.white54)));
+        }
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(15),
-            itemCount: lawyers.length,
-            itemBuilder: (context, index) {
-              final lawyer = lawyers[index];
-              
-              // Flexible key checking for Name (Checking all common possibilities)
-              String name = (lawyer['name'] ?? 
-                             lawyer['Name'] ?? 
-                             lawyer['fullName'] ?? 
-                             lawyer['FullName'] ?? 
-                             lawyer['userName'] ?? 
-                             'Verified Lawyer').toString();
+        return ListView.builder(
+          padding: const EdgeInsets.all(15),
+          itemCount: snapshot.data!.docs.length,
+          itemBuilder: (context, index) {
+            var doc = snapshot.data!.docs[index];
+            var data = doc.data() as Map<String, dynamic>;
+            data['id'] = doc.id; 
 
-              // Flexible key checking for Experience
-              String experience = (lawyer['experience'] ?? 
-                                   lawyer['Experience'] ?? 
-                                   lawyer['exp'] ?? 
-                                   lawyer['Exp'] ?? 
-                                   lawyer['years'] ?? 
-                                   '0').toString();
-
-              // Email and Specialization
-              String email = (lawyer['email'] ?? lawyer['Email'] ?? 'N/A').toString();
-              String specialization = (lawyer['specialization'] ?? 
-                                       lawyer['speciality'] ?? 
-                                       lawyer['category'] ?? 
-                                       'Legal Consultant').toString();
-
-              return Card(
-                color: cardNavy,
-                margin: const EdgeInsets.only(bottom: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.all(15),
-                  leading: CircleAvatar(
-                    backgroundColor: goldAccent.withAlpha(50),
-                    child: Icon(Icons.verified, color: Colors.blue),
-                  ),
-                  title: Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  subtitle: Text("Email: $email\nExperience: $experience Years\nSpec: $specialization",
-                    style: const TextStyle(color: Colors.white54, fontSize: 12)),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                    onPressed: () {
-                      firestoreService.deleteUser(lawyer['id'], 'Lawyer', true);
-                    },
-                  ),
+            return Card(
+              color: cardNavy,
+              margin: const EdgeInsets.only(bottom: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
+                leading: CircleAvatar(
+                  backgroundColor: goldAccent.withOpacity(0.1), 
+                  child: const Icon(Icons.verified, color: Colors.blue)
                 ),
-              );
-            },
-          );
-        },
-      ),
+                title: Text((data['name'] ?? data['fullName'] ?? 'Unknown').toString(), 
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                subtitle: Text((data['specialization'] ?? 'Legal Consultant').toString(), 
+                  style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                trailing: const Icon(Icons.arrow_forward_ios, color: goldAccent, size: 16),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => LawyerProfileView(lawyer: data, isVerified: true)),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

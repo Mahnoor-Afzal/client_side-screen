@@ -65,7 +65,18 @@ class MonitorCases extends StatelessWidget {
   Widget _buildCaseList(List<Map<String, dynamic>> allCases, String statusFilter) {
     final filteredCases = allCases.where((caseData) {
       if (statusFilter == "All") return true;
-      return caseData['status']?.toString().toLowerCase() == statusFilter.toLowerCase();
+      
+      String status = (caseData['status'] ?? 'pending').toString().toLowerCase().trim();
+      
+      if (statusFilter == "Pending") {
+        return status == "pending" || status == "waiting" || status == "new";
+      } else if (statusFilter == "Active") {
+        return status == "active" || status == "accepted" || status == "in progress" || status == "ongoing";
+      } else if (statusFilter == "Closed") {
+        return status == "closed" || status == "completed" || status == "finished" || status == "ended";
+      }
+      
+      return status == statusFilter.toLowerCase();
     }).toList();
 
     if (filteredCases.isEmpty) {
