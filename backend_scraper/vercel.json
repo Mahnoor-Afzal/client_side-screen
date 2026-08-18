@@ -1,0 +1,14 @@
+{
+  "builds": [
+    {
+      "src": "scraper.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "scraper.py"
+    }
+  ]
+}
