@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'lawyer_profile_screen.dart'; // Seedha Profile Setup par bhejne ke liye
+import 'lawyer_profile_screen.dart'; // For direct navigation to Profile Setup
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -30,7 +30,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
           password: _passwordController.text.trim(),
         );
 
-        // Firestore mein record save karna - status 'incomplete' rakha hai
+        // Saving record to Firestore - status set to 'incomplete'
         await FirebaseFirestore.instance.collection('lawyers').doc(userCredential.user!.uid).set({
           'fullName': _nameController.text.trim(),
           'email': _emailController.text.trim(),
@@ -41,7 +41,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
         }, SetOptions(merge: true));
 
         if (mounted) {
-          // Signup ke foran baad Profile Setup par bhej rahe hain
+          // Navigating to Profile Setup immediately after Signup
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(builder: (context) => const LawyerProfileScreen()),
@@ -51,7 +51,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
       } on FirebaseAuthException catch (e) {
         String msg = "Signup Failed";
         if (e.code == 'email-already-in-use') {
-          msg = "Ye email pehle se registered hai.";
+          msg = "This email is already registered.";
         } else {
           msg = e.message ?? "Error";
         }

@@ -4,8 +4,78 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 
+// Adjust imports as per your actual file directory
 import 'case_requet_screen.dart';
 import 'messages_list_screen.dart';
+import 'Hearing_details.dart';
+import 'documents_screen.dart';
+import 'consultation_screen.dart';
+import 'chat_screen.dart';
+
+/// Helper function to get total unread count for bell icons across the app
+Stream<int> getTotalUnreadNotificationsCount(String currentUid) {
+  final controller = StreamController<int>();
+
+  int rawNotifUnread = 0;
+  int req1Unread = 0;
+  int req2Unread = 0;
+
+  void calculateTotal() {
+    if (controller.isClosed) return;
+    int total = rawNotifUnread + req1Unread + req2Unread;
+    controller.add(total);
+  }
+
+  // 1. Notifications collection se unread count
+  final sub1 = FirebaseFirestore.instance
+      .collection('notifications')
+      .where('userId', isEqualTo: currentUid)
+      .where('isRead', isEqualTo: false)
+      .snapshots()
+      .listen((snapshot) {
+    rawNotifUnread = snapshot.docs.length;
+    calculateTotal();
+  });
+
+  // 2. Case requests se pending unread count
+  final sub2 = FirebaseFirestore.instance
+      .collection('Case request')
+      .snapshots()
+      .listen((snapshot) {
+    req1Unread = snapshot.docs.where((doc) {
+      var d = doc.data() as Map<String, dynamic>;
+      String lawyer = (d['lawyerid'] ?? d['lawyerId'] ?? '').toString().trim();
+      String status = (d['status'] ?? 'pending').toString().toLowerCase().trim();
+      bool isRead = d['isRead'] ?? false;
+      return lawyer == currentUid && status == 'pending' && !isRead;
+    }).length;
+    calculateTotal();
+  });
+
+  // 3. Suit requests se pending unread count
+  final sub3 = FirebaseFirestore.instance
+      .collection('suit_a_file_request')
+      .snapshots()
+      .listen((snapshot) {
+    req2Unread = snapshot.docs.where((doc) {
+      var d = doc.data() as Map<String, dynamic>;
+      String lawyer = (d['lawyerid'] ?? d['lawyerId'] ?? '').toString().trim();
+      String status = (d['status'] ?? 'pending').toString().toLowerCase().trim();
+      bool isRead = d['isRead'] ?? false;
+      return lawyer == currentUid && status == 'pending' && !isRead;
+    }).length;
+    calculateTotal();
+  });
+
+  controller.onCancel = () {
+    sub1.cancel();
+    sub2.cancel();
+    sub3.cancel();
+    controller.close();
+  };
+
+  return controller.stream;
+}
 
 class NotificationScreen extends StatefulWidget {
   const NotificationScreen({super.key});
@@ -24,7 +94,38 @@ class _NotificationScreenState extends State<NotificationScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
-        title: const Text("Notifications", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: StreamBuilder<List<Map<String, dynamic>>>(
+          stream: _getAllNotificationsAndRequests(uid ?? ''),
+          builder: (context, snapshot) {
+            int totalUnread = 0;
+            if (snapshot.hasData) {
+              for (var item in snapshot.data!) {
+                if (item['isRead'] == false) {
+                  totalUnread += (item['unreadCount'] != null && item['unreadCount'] > 0) ? (item['unreadCount'] as int) : 1;
+                }
+              }
+            }
+            return Row(
+              children: [
+                const Text("Notifications", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                if (totalUnread > 0) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: goldColor,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      "$totalUnread",
+                      style: const TextStyle(color: navyBlue, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ],
+            );
+          },
+        ),
         backgroundColor: navyBlue,
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
@@ -55,6 +156,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
               bool isRead = data['isRead'] ?? false;
               Timestamp? ts = data['timestamp'];
               String type = data['type']?.toString().toLowerCase() ?? '';
+              String title = data['title']?.toString() ?? '';
 
               return Card(
                 elevation: isRead ? 1 : 3,
@@ -67,7 +169,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                 child: ListTile(
                   leading: CircleAvatar(
                     backgroundColor: isRead ? Colors.grey[200] : goldColor.withValues(alpha: 0.2),
-                    child: Icon(_getIcon(type), color: isRead ? Colors.grey : goldColor),
+                    child: Icon(_getIcon(type, title), color: isRead ? Colors.grey : goldColor),
                   ),
                   title: Text(
                     data['title'] ?? "Notification",
@@ -191,12 +293,14 @@ class _NotificationScreenState extends State<NotificationScreen> {
       return lawyer == uid && status == 'pending';
     }).map((doc) {
       var d = doc.data() as Map<String, dynamic>;
+      bool isSuit = source == 'suit_request';
       return {
         'docId': doc.id,
         'requestId': doc.id,
+        'consultationId': d['consultationId'] ?? doc.id,
         'source': source,
-        'type': 'case_request',
-        'title': 'New Request Received',
+        'type': isSuit ? 'suit_request' : 'consultation_request',
+        'title': isSuit ? 'New File a Suit Request' : 'New Consultation Request',
         'body': "${d['clientName'] ?? d['fullName'] ?? 'A Client'} has sent a request for \"${d['caseType'] ?? d['title'] ?? 'Legal Matter'}\".",
         'isRead': d['isRead'] ?? false,
         'timestamp': d['createdAt'] ?? d['timestamp'] ?? Timestamp.now(),
@@ -217,25 +321,100 @@ class _NotificationScreenState extends State<NotificationScreen> {
     );
   }
 
-  IconData _getIcon(String type) => type == 'case_request' ? Icons.assignment_late : (type == 'chat_message' ? Icons.chat : Icons.notifications);
+  IconData _getIcon(String type, String title) {
+    String t = title.toLowerCase();
+    String typeLower = type.toLowerCase();
+
+    if (t.contains('wakalatnama') || typeLower.contains('wakalatnama') || t.contains('signed')) {
+      return Icons.assignment_turned_in;
+    } else if (t.contains('document') || typeLower.contains('document')) {
+      return Icons.insert_drive_file_outlined;
+    } else if (t.contains('consultation') || typeLower.contains('consultation')) {
+      return Icons.chat_bubble_outline;
+    } else if (t.contains('suit') || typeLower.contains('suit')) {
+      return Icons.assignment_late_outlined;
+    } else if (t.contains('hearing') || typeLower.contains('hearing')) {
+      return Icons.gavel;
+    } else if (t.contains('chat') || t.contains('message') || typeLower.contains('chat') || typeLower == 'chat_message') {
+      return Icons.chat_outlined;
+    }
+    return Icons.notifications_none_outlined;
+  }
 
   void _navigateToTarget(BuildContext context, Map<String, dynamic> item) {
-    String type = item['type']?.toString().toLowerCase() ?? '';
-    Widget target = (type == 'case_request' || item['source'] == 'case_request' || item['source'] == 'suit_request')
-        ? const CaseRequestsScreen()
-        : const MessagesListScreen();
+    String title = (item['title'] ?? '').toString().toLowerCase();
+    String type = (item['type'] ?? '').toString().toLowerCase();
+    String source = (item['source'] ?? '').toString().toLowerCase();
+    String body = (item['body'] ?? '').toString().toLowerCase();
 
-    Navigator.push(context, MaterialPageRoute(builder: (_) => target));
+    String clientId = item['senderId'] ?? item['clientId'] ?? item['userId'] ?? '';
+    String clientName = item['senderName'] ?? item['clientName'] ?? item['fullName'] ?? item['title'] ?? 'Client';
+    String caseId = item['caseId'] ?? item['requestId'] ?? item['docId'] ?? '';
+    String consultationId = item['consultationId'] ?? item['requestId'] ?? item['docId'] ?? '';
+
+    // 1. CHAT NOTIFICATIONS: Opens Chat Screen
+    if (type.contains('chat') || type.contains('message') || source == 'chat') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatScreen(
+            clientId: clientId,
+            clientName: clientName,
+            consultationId: consultationId,
+          ),
+        ),
+      );
+      return;
+    }
+
+    Widget? target;
+
+    // 2. DOCUMENTS VAULT (Checking title, type, body, or source for wakalatnama/signed/document)
+    if (title.contains('wakalatnama') ||
+        type.contains('wakalatnama') ||
+        title.contains('signed') ||
+        type.contains('signed') ||
+        body.contains('signed') ||
+        body.contains('wakalatnama') ||
+        title.contains('document') ||
+        type.contains('document')) {
+      target = const DocumentsScreen();
+    }
+    // 3. CONSULTATIONS
+    else if (title.contains('consultation') || type.contains('consultation')) {
+      target = const ConsultationScreen();
+    }
+    // 4. CASE REQUESTS
+    else if (title.contains('suit') || type.contains('suit_request') || source == 'suit_request' || type.contains('case_request') || source == 'case_request') {
+      target = const CaseRequestsScreen();
+    }
+    // 5. HEARING DETAILS
+    else if (title.contains('hearing') || type.contains('hearing')) {
+      target = HearingDetailsScreen(
+        caseId: caseId,
+        clientName: clientName,
+        clientId: clientId,
+      );
+    }
+    // 6. OTHER NOTIFICATIONS
+    else {
+      target = null;
+    }
+
+    // Navigate only if a target screen is defined
+    if (target != null) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => target!));
+    }
   }
 
   Future<void> _markSingleAsRead(Map<String, dynamic> item) async {
     if (item['source'] == 'notifications_col') {
       List allIds = item['allDocIds'] ?? (item['docId'] != null ? [item['docId']] : []);
-      WriteBatch batch = FirebaseFirestore.instance.batch();
+      WriteBatch firestoreBatch = FirebaseFirestore.instance.batch();
       for (var id in allIds) {
-        batch.update(FirebaseFirestore.instance.collection('notifications').doc(id), {'isRead': true});
+        firestoreBatch.update(FirebaseFirestore.instance.collection('notifications').doc(id), {'isRead': true});
       }
-      await batch.commit();
+      await firestoreBatch.commit();
     } else if (item['docId'] != null) {
       String col = item['source'] == 'case_request' ? 'Case request' : 'suit_a_file_request';
       await FirebaseFirestore.instance.collection(col).doc(item['docId']).update({'isRead': true});

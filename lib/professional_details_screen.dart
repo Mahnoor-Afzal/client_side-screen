@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'Lawyer_dashboard.dart';
+import 'payment_verification_screen.dart';
 
 class ProfessionalDetailsScreen extends StatefulWidget {
   const ProfessionalDetailsScreen({super.key});
@@ -32,13 +32,6 @@ class _ProfessionalDetailsScreenState extends State<ProfessionalDetailsScreen> {
     setState(() => _isLoading = true);
     try {
       String uid = FirebaseAuth.instance.currentUser!.uid;
-      
-      // Get current lawyer data safely
-      DocumentSnapshot userDoc = await FirebaseFirestore.instance.collection('lawyers').doc(uid).get();
-      Map<String, dynamic>? userData = userDoc.data() as Map<String, dynamic>?;
-      
-      String fullName = userData?['fullName'] ?? "Lawyer";
-      String email = userData?['email'] ?? "N/A";
 
       // Update lawyer profile
       await FirebaseFirestore.instance.collection('lawyers').doc(uid).update({
@@ -48,30 +41,10 @@ class _ProfessionalDetailsScreenState extends State<ProfessionalDetailsScreen> {
         'registrationStatus': 'completed',
       });
 
-      // Send detailed request to admin
-      await FirebaseFirestore.instance.collection('admin_requests').doc(uid).set({
-        'lawyerId': uid,
-        'fullName': fullName,
-        'email': email,
-        'type': 'new_registration',
-        'status': 'pending',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      // Create a notification for admin
-      await FirebaseFirestore.instance.collection('admin_notifications').add({
-        'title': 'New Lawyer Registration',
-        'body': '$fullName has requested verification.',
-        'lawyerId': uid,
-        'isRead': false,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-
       if (mounted) {
-        Navigator.pushAndRemoveUntil(
+        Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const LawyerDashboard()),
-          (route) => false,
+          MaterialPageRoute(builder: (context) => const PaymentVerificationScreen()),
         );
       }
     } catch (e) {
@@ -192,9 +165,9 @@ class _ProfessionalDetailsScreenState extends State<ProfessionalDetailsScreen> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 onPressed: _isLoading ? null : _completeSetup,
-                child: _isLoading 
-                  ? const CircularProgressIndicator(color: Color(0xFF101D3D))
-                  : const Text("COMPLETE SETUP", style: TextStyle(color: Color(0xFF101D3D), fontWeight: FontWeight.bold)),
+                child: _isLoading
+                    ? const CircularProgressIndicator(color: Color(0xFF101D3D))
+                    : const Text("COMPLETE SETUP", style: TextStyle(color: Color(0xFF101D3D), fontWeight: FontWeight.bold)),
               ),
             ),
             const SizedBox(height: 50),

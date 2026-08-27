@@ -24,7 +24,6 @@ class _PaymentVerificationScreenState extends State<PaymentVerificationScreen> {
 
   final Color navyBlue = const Color(0xFF101D3D);
   final Color goldColor = const Color(0xFFC5A358);
-  final String adminPaymentNumber = "0300-1234567";
 
   // Cloudinary Configuration
   final String cloudName = "gasafl8q";
@@ -36,18 +35,13 @@ class _PaymentVerificationScreenState extends State<PaymentVerificationScreen> {
       final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
 
       if (image != null) {
-        if (kIsWeb) {
-          final bytes = await image.readAsBytes();
-          setState(() {
-            _selectedImageBytes = bytes;
-          });
-        } else {
-          final bytes = await image.readAsBytes();
-          setState(() {
-            _selectedImageBytes = bytes;
+        final bytes = await image.readAsBytes();
+        setState(() {
+          _selectedImageBytes = bytes;
+          if (!kIsWeb) {
             _selectedImageFile = File(image.path);
-          });
-        }
+          }
+        });
       }
     } catch (e) {
       debugPrint("Image Picker Error: $e");
@@ -167,109 +161,126 @@ class _PaymentVerificationScreenState extends State<PaymentVerificationScreen> {
 
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance.collection('lawyers').doc(user.uid).snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+      builder: (context, lawyerSnapshot) {
+        if (lawyerSnapshot.connectionState == ConnectionState.waiting) {
           return Scaffold(backgroundColor: navyBlue, body: Center(child: CircularProgressIndicator(color: goldColor)));
         }
 
-        var data = snapshot.data?.data() as Map<String, dynamic>? ?? {};
-        String status = data['paymentStatus'] ?? 'Unpaid';
-        bool isApproved = data['isApproved'] == true;
+        var lawyerData = lawyerSnapshot.data?.data() as Map<String, dynamic>? ?? {};
+        String status = lawyerData['paymentStatus'] ?? 'Unpaid';
+        bool isApproved = lawyerData['isApproved'] == true;
 
         if (status == 'Approved' || isApproved) {
           return const LawyerDashboard();
         }
 
-        return Scaffold(
-          backgroundColor: navyBlue,
-          appBar: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            title: const Text("Registration Fee", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            actions: [
-              IconButton(onPressed: () => FirebaseAuth.instance.signOut(), icon: const Icon(Icons.logout, color: Colors.white))
-            ],
-          ),
-          body: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(25),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.account_balance_wallet_outlined, size: 70, color: goldColor),
-                  const SizedBox(height: 20),
-                  const Text("One-Time Registration Fee: Rs. 2000", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 10),
-                  Text("JazzCash/EasyPaisa: $adminPaymentNumber", textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70)),
-                  const SizedBox(height: 30),
+        // Fetching Admin Payment Info from app_settings/payment_info dynamically
+        return StreamBuilder<DocumentSnapshot>(
+          stream: FirebaseFirestore.instance.collection('app_settings').doc('payment_info').snapshots(),
+          builder: (context, paymentSettingsSnapshot) {
+            var paymentData = paymentSettingsSnapshot.data?.data() as Map<String, dynamic>? ?? {};
 
-                  if (status == 'Submitted') ...[
-                    const Icon(Icons.access_time_filled, size: 60, color: Colors.orangeAccent),
-                    const SizedBox(height: 15),
-                    const Text("Verification Pending", style: TextStyle(color: Colors.orangeAccent, fontSize: 20, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 5),
-                    const Text("We are verifying your payment. Thank you!", textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
-                  ] else ...[
-                    TextField(
-                      controller: _tidController,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        hintText: "Enter TID",
-                        hintStyle: const TextStyle(color: Colors.white24),
-                        filled: true,
-                        fillColor: Colors.white.withOpacity(0.05),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                        prefixIcon: Icon(Icons.receipt_long, color: goldColor),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    GestureDetector(
-                      onTap: _pickScreenshot,
-                      child: Container(
-                        height: 180,
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: _selectedImageBytes != null ? goldColor : Colors.white10),
-                        ),
-                        child: _selectedImageBytes != null
-                            ? Padding(
-                          padding: const EdgeInsets.all(4.0),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: Image.memory(_selectedImageBytes!, fit: BoxFit.contain),
-                          ),
-                        )
-                            : Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.add_photo_alternate_outlined, color: goldColor, size: 40),
-                            Text("Upload Screenshot", style: TextStyle(color: goldColor)),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 30),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 55,
-                      child: ElevatedButton(
-                        onPressed: _isLoading ? null : _submitPayment,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: goldColor,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        child: _isLoading
-                            ? const CircularProgressIndicator(color: Colors.black)
-                            : const Text("SUBMIT PAYMENT", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                  ],
+            String accountTitle = paymentData['account_title'] ?? 'Admin';
+            String easypaisaNumber = paymentData['easypaisa_number'] ?? 'N/A';
+            String jazzcashNumber = paymentData['jazzcash_number'] ?? 'N/A';
+            String feeAmount = paymentData['fee_amount'] ?? '2000';
+
+            return Scaffold(
+              backgroundColor: navyBlue,
+              appBar: AppBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                title: const Text("Registration Fee", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                actions: [
+                  IconButton(onPressed: () => FirebaseAuth.instance.signOut(), icon: const Icon(Icons.logout, color: Colors.white))
                 ],
               ),
-            ),
-          ),
+              body: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(25),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.account_balance_wallet_outlined, size: 70, color: goldColor),
+                      const SizedBox(height: 20),
+                      Text("One-Time Registration Fee: Rs. $feeAmount", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 10),
+                      Text("Account Title: $accountTitle", style: const TextStyle(color: Colors.white70)),
+                      const SizedBox(height: 5),
+                      Text("EasyPaisa: $easypaisaNumber", style: const TextStyle(color: Colors.white70)),
+                      const SizedBox(height: 5),
+                      Text("JazzCash: $jazzcashNumber", style: const TextStyle(color: Colors.white70)),
+                      const SizedBox(height: 30),
+
+                      if (status == 'Submitted') ...[
+                        const Icon(Icons.access_time_filled, size: 60, color: Colors.orangeAccent),
+                        const SizedBox(height: 15),
+                        const Text("Verification Pending", style: TextStyle(color: Colors.orangeAccent, fontSize: 20, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 5),
+                        const Text("We are verifying your payment. Thank you!", textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
+                      ] else ...[
+                        TextField(
+                          controller: _tidController,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            hintText: "Enter TID",
+                            hintStyle: const TextStyle(color: Colors.white24),
+                            filled: true,
+                            fillColor: Colors.white.withOpacity(0.05),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                            prefixIcon: Icon(Icons.receipt_long, color: goldColor),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        GestureDetector(
+                          onTap: _pickScreenshot,
+                          child: Container(
+                            height: 180,
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.05),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: _selectedImageBytes != null ? goldColor : Colors.white10),
+                            ),
+                            child: _selectedImageBytes != null
+                                ? Padding(
+                              padding: const EdgeInsets.all(4.0),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.memory(_selectedImageBytes!, fit: BoxFit.contain),
+                              ),
+                            )
+                                : Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.add_photo_alternate_outlined, color: goldColor, size: 40),
+                                Text("Upload Screenshot", style: TextStyle(color: goldColor)),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 30),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 55,
+                          child: ElevatedButton(
+                            onPressed: _isLoading ? null : _submitPayment,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: goldColor,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: _isLoading
+                                ? const CircularProgressIndicator(color: Colors.black)
+                                : const Text("SUBMIT PAYMENT", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         );
       },
     );
