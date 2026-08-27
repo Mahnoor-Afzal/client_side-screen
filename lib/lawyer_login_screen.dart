@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-// Zaroori Imports
+// Necessary Imports
 import 'Lawyer_dashboard.dart';
 import 'signup_screen.dart';
 import 'forgot_password.dart';
+import 'rejected_lawyer_screen.dart';
 
 class LawyerLoginScreen extends StatefulWidget {
   const LawyerLoginScreen({super.key});
@@ -24,6 +26,18 @@ class _LawyerLoginScreenState extends State<LawyerLoginScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  // Helper method to show error messages easily
+  void _showErrorSnackBar(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
   }
 
   @override
@@ -116,19 +130,107 @@ class _LawyerLoginScreenState extends State<LawyerLoginScreen> {
                 width: double.infinity,
                 height: 55,
                 child: ElevatedButton(
-                  onPressed: _isLoading ? null : () async {
-                    if (_emailController.text.trim().isEmpty || _passwordController.text.trim().isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Email aur password lazmi hain.")));
+                  onPressed: _isLoading
+                      ? null
+                      : () async {
+                    final email = _emailController.text.trim();
+                    final password = _passwordController.text.trim();
+
+                    if (email.isEmpty || password.isEmpty) {
+                      _showErrorSnackBar("Email and password are required.");
                       return;
                     }
 
                     setState(() => _isLoading = true);
-                    try {
-                      await FirebaseAuth.instance.signInWithEmailAndPassword(
-                        email: _emailController.text.trim(),
-                        password: _passwordController.text.trim(),
-                      );
 
+                    try {
+                      // 1. Firebase Authentication Sign-in
+                      UserCredential userCredential = await FirebaseAuth.instance
+                          .signInWithEmailAndPassword(email: email, password: password);
+
+                      String uid = userCredential.user!.uid;
+
+                      // 2. Check in 'verified_lawyers' collection
+                      DocumentSnapshot lawyerDoc = await FirebaseFirestore.instance
+                          .collection('verified_lawyers')
+                          .doc(uid)
+                          .get();
+
+                      if (!lawyerDoc.exists) {
+                        // Secondary check using email if doc ID doesn't match
+                        var emailQuery = await FirebaseFirestore.instance
+                            .collection('verified_lawyers')
+                            .where('email', isEqualTo: email)
+                            .limit(1)
+                            .get();
+
+                        if (emailQuery.docs.isNotEmpty) {
+                          lawyerDoc = emailQuery.docs.first;
+                        }
+                      }
+
+                      // If lawyer data not found in verified_lawyers, check in 'lawyers' collection (could be pending or rejected)
+                      if (!lawyerDoc.exists) {
+                        lawyerDoc = await FirebaseFirestore.instance
+                            .collection('lawyers')
+                            .doc(uid)
+                            .get();
+
+                        if (!lawyerDoc.exists) {
+                          var emailQuery = await FirebaseFirestore.instance
+                              .collection('lawyers')
+                              .where('email', isEqualTo: email)
+                              .limit(1)
+                              .get();
+
+                          if (emailQuery.docs.isNotEmpty) {
+                            lawyerDoc = emailQuery.docs.first;
+                          }
+                        }
+                      }
+
+                      // If lawyer data not found anywhere
+                      if (!lawyerDoc.exists) {
+                        await FirebaseAuth.instance.signOut();
+                        _showErrorSnackBar("No registered lawyer account found. Please sign up first.");
+                        return;
+                      }
+
+                      // 3. Admin Verification Status Check
+                      var data = lawyerDoc.data() as Map<String, dynamic>?;
+
+                      String status = (data?['status'] ?? data?['verificationStatus'] ?? '').toString().toLowerCase();
+                      bool isRejected = status == 'rejected' || data?['isRejected'] == true;
+
+                      // SCENARIO A: Rejected
+                      if (isRejected) {
+                        String reason = data?['rejectionReason'] ?? data?['reason'] ?? 'No specific reason provided by admin.';
+                        await FirebaseAuth.instance.signOut();
+
+                        if (mounted) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => RejectedLawyerScreen(rejectionReason: reason),
+                            ),
+                          );
+                        }
+                        return;
+                      }
+
+                      bool isApproved = data?['isApproved'] == true ||
+                          status == 'approved' ||
+                          status == 'active' ||
+                          (data?['isVerified'] ?? false) == true;
+
+                      // SCENARIO B: Pending Approval
+                      if (!isApproved) {
+                        await FirebaseAuth.instance.signOut();
+                        _showErrorSnackBar("Your account is pending admin approval. Please wait for verification.");
+                        return;
+                      }
+
+                      // SCENARIO C: Successful Login & Navigation for Verified Lawyers
                       if (mounted) {
                         Navigator.pushReplacement(
                           context,
@@ -138,20 +240,17 @@ class _LawyerLoginScreenState extends State<LawyerLoginScreen> {
                     } on FirebaseAuthException catch (e) {
                       String message = "Login Failed";
                       if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
-                        message = "Email ya password ghalat hai ya account nahi bana.";
+                        message = "Incorrect email or password, or account doesn't exist.";
                       } else if (e.code == 'wrong-password') {
-                        message = "Ghalat password dala hai.";
+                        message = "Incorrect password entered.";
                       } else if (e.code == 'invalid-email') {
-                        message = "Email ka format sahi nahi hai.";
+                        message = "Email format is invalid.";
                       } else {
                         message = e.message ?? "Login Failed";
                       }
-
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(message)),
-                        );
-                      }
+                      _showErrorSnackBar(message);
+                    } catch (e) {
+                      _showErrorSnackBar("An unexpected error occurred: $e");
                     } finally {
                       if (mounted) setState(() => _isLoading = false);
                     }
@@ -160,12 +259,12 @@ class _LawyerLoginScreenState extends State<LawyerLoginScreen> {
                     backgroundColor: goldColor,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: _isLoading 
-                    ? const CircularProgressIndicator(color: navyBlue)
-                    : const Text(
-                        "LOGIN",
-                        style: TextStyle(color: navyBlue, fontWeight: FontWeight.bold, fontSize: 16),
-                      ),
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: navyBlue)
+                      : const Text(
+                    "LOGIN",
+                    style: TextStyle(color: navyBlue, fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
                 ),
               ),
 

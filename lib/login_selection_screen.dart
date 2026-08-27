@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/material.dart';
-import 'lawyer_login_screen.dart'; // Is line ko add karein (file ka sahi naam likhein)
+import 'lawyer_login_screen.dart'; // Added import for Lawyer Login
+
 class LoginSelectionScreen extends StatelessWidget {
   const LoginSelectionScreen({super.key});
 
@@ -69,15 +69,14 @@ class LoginSelectionScreen extends StatelessWidget {
               // --- 4. LAWYER BUTTON ---
               _buildRoleButton(
                 context: context,
-                label: "Lawyer", // Ye button ka text hai
+                label: "Lawyer", // Button text
                 icon: Icons.gavel_rounded,
                 onTap: () {
-                  // ---- YAHAN PATH DENA HAI ----
+                  // Navigate to Lawyer Login
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) =>  LawyerLoginScreen()),
+                    MaterialPageRoute(builder: (context) => const LawyerLoginScreen()),
                   );
-                  // ----------------------------
                 },
               ),
 
@@ -107,7 +106,7 @@ class LoginSelectionScreen extends StatelessWidget {
                 icon: Icons.person_search_rounded,
                 onTap: () {
                   // Navigation for Client Login will go here
-                  print("Client selection clicked");
+                  debugPrint("Client selection clicked");
                 },
               ),
             ],

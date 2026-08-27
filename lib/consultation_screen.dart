@@ -45,7 +45,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     );
   }
 
-  // Requests Tab: Showing pending requests from 'consultation_request' (e.g. Javeria)
+  // Requests Tab: Showing pending requests from 'consultation_request'
   Widget _buildRequestList() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
@@ -89,7 +89,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     );
   }
 
-  // Ongoing Tab: Showing chats from 'chat' collection (Restored Javeria)
+  // Ongoing Tab: Showing ONLY consultation chats from 'chat' collection
   Widget _buildOngoingList() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
@@ -100,19 +100,16 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        
         final docs = snapshot.data?.docs.where((doc) {
           var data = doc.data() as Map<String, dynamic>;
           String status = (data['status'] ?? "").toString().toLowerCase();
           String type = (data['type'] ?? "").toString().toLowerCase();
-          
-          // STRICT SEPARATION: 
-          // 1. Agar type 'case' hai, toh Consultation mein nahi dikhayenge (Kainat bibi yahan se hide ho jayegi).
-          // 2. Agar type empty hai ya 'consultation' hai, toh Javeria show hogi.
-          bool isCase = type == 'case' || type == 'file a suit';
+
+          // Strictly allow ONLY consultation chats
+          bool isConsultation = type == 'consultation';
           bool isActive = status == 'active' || status == 'ongoing' || status == 'accepted';
-          
-          return !isCase && isActive;
+
+          return isConsultation && isActive;
         }).toList() ?? [];
 
         if (docs.isEmpty) return _buildEmptyState("ongoing chats");
@@ -142,11 +139,11 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                   builder: (context, msgSnap) {
                     String lastMsg = data['lastMessage'] ?? "Click to start chatting...";
                     if (msgSnap.hasData && msgSnap.data!.docs.isNotEmpty) {
-                       var mData = msgSnap.data!.docs.first.data() as Map<String, dynamic>;
-                       lastMsg = mData['text'] ?? lastMsg;
+                      var mData = msgSnap.data!.docs.first.data() as Map<String, dynamic>;
+                      lastMsg = mData['text'] ?? lastMsg;
                     }
                     return Text(lastMsg, maxLines: 1, overflow: TextOverflow.ellipsis);
-                  }
+                  },
                 ),
                 trailing: Icon(Icons.chat, color: goldColor),
                 onTap: () {

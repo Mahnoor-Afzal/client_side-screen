@@ -35,9 +35,11 @@ class AdminDashboard extends StatelessWidget {
             itemBuilder: (context, index) {
               var doc = snapshot.data!.docs[index];
               var data = doc.data() as Map<String, dynamic>;
-              
+
               // Use doc.id as fallback for lawyerId
               String lawyerId = data['lawyerId'] ?? doc.id;
+              String? proofUrl = data['paymentScreenshot'];
+              String tid = data['transactionId'] ?? "N/A";
 
               return Card(
                 elevation: 4,
@@ -48,10 +50,36 @@ class AdminDashboard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(data['fullName'] ?? "New Lawyer", 
-                           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: navyBlue)),
+                      Text(data['fullName'] ?? "New Lawyer",
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: navyBlue)),
                       const SizedBox(height: 5),
-                      Text("Email: ${data['email'] ?? 'N/A'}", style: const TextStyle(color: Colors.grey)),
+                      Text("Email: ${data['email'] ?? 'N/A'}", style: const TextStyle(color: Colors.black87)),
+                      const SizedBox(height: 5),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: goldColor.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text("TID: $tid", style: TextStyle(fontWeight: FontWeight.bold, color: navyBlue)),
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      // Payment Screenshot Preview Button
+                      if (proofUrl != null && proofUrl.isNotEmpty)
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: navyBlue,
+                            side: BorderSide(color: navyBlue),
+                          ),
+                          onPressed: () => _showProofDialog(context, proofUrl, tid),
+                          icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                          label: const Text("View Payment Proof"),
+                        )
+                      else
+                        const Text("No Payment Proof Uploaded", style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+
                       const Divider(height: 25),
                       Row(
                         children: [
@@ -83,27 +111,80 @@ class AdminDashboard extends StatelessWidget {
     );
   }
 
+  // Dialog to view screenshot clearly
+  void _showProofDialog(BuildContext context, String imageUrl, String tid) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppBar(
+              title: Text("TID: $tid", style: const TextStyle(fontSize: 16)),
+              backgroundColor: navyBlue,
+              elevation: 0,
+              automaticallyImplyLeading: false,
+              actions: [
+                IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: InteractiveViewer(
+                child: Image.network(
+                  imageUrl,
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return const SizedBox(
+                      height: 200,
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) => const Text("Failed to load image"),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _handleRequest(String requestId, String lawyerId, bool isAccepted, BuildContext context) async {
     try {
-      if (isAccepted) {
-        // Force update isVerified and registrationStatus
-        await FirebaseFirestore.instance.collection('lawyers').doc(lawyerId).set({
-          'isVerified': true,
-          'registrationStatus': 'completed',
-        }, SetOptions(merge: true));
-      }
+      WriteBatch batch = FirebaseFirestore.instance.batch();
 
-      // Update the request status
-      await FirebaseFirestore.instance.collection('admin_requests').doc(requestId).update({
+      // 1. Update Lawyer document approval & verification status
+      DocumentReference lawyerRef = FirebaseFirestore.instance.collection('lawyers').doc(lawyerId);
+      batch.set(lawyerRef, {
+        'isVerified': isAccepted,
+        'isApproved': isAccepted,
+        'paymentStatus': isAccepted ? 'Approved' : 'Rejected',
+        'registrationStatus': isAccepted ? 'completed' : 'rejected',
+      }, SetOptions(merge: true));
+
+      // 2. Update Admin Request status
+      DocumentReference requestRef = FirebaseFirestore.instance.collection('admin_requests').doc(requestId);
+      batch.update(requestRef, {
         'status': isAccepted ? 'accepted' : 'rejected',
         'processedAt': FieldValue.serverTimestamp(),
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isAccepted ? "Lawyer Verified!" : "Request Rejected"), backgroundColor: isAccepted ? Colors.green : Colors.red),
-      );
+      await batch.commit();
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isAccepted ? "Lawyer Approved & Verified!" : "Request Rejected"),
+            backgroundColor: isAccepted ? Colors.green : Colors.red,
+          ),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      }
     }
   }
 }

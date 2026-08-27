@@ -7,12 +7,14 @@ class ChatScreen extends StatefulWidget {
   final String consultationId;
   final String clientName;
   final String? clientId;
+  final String? collectionPath;
 
   const ChatScreen({
     super.key,
     required this.consultationId,
     required this.clientName,
     this.clientId,
+    this.collectionPath,
   });
 
   @override
@@ -27,13 +29,25 @@ class _ChatScreenState extends State<ChatScreen> {
 
   String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
 
+  bool get isGroupChat => widget.collectionPath != null && widget.collectionPath!.isNotEmpty;
+
   String get effectiveChatId {
-    if (widget.clientId != null && widget.clientId!.isNotEmpty && currentUserId != null) {
+    if (!isGroupChat && widget.clientId != null && widget.clientId!.isNotEmpty && currentUserId != null) {
       List<String> ids = [currentUserId!, widget.clientId!];
       ids.sort();
       return ids.join('_');
     }
     return widget.consultationId.trim();
+  }
+
+  CollectionReference<Map<String, dynamic>> get _messagesRef {
+    if (isGroupChat) {
+      return FirebaseFirestore.instance.collection(widget.collectionPath!);
+    }
+    return FirebaseFirestore.instance
+        .collection('chat')
+        .doc(effectiveChatId)
+        .collection('messages');
   }
 
   @override
@@ -42,7 +56,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _fetchLawyerName();
   }
 
-  // Exact Read Logic: When the other user enters the chat screen, every unread message will be marked as true
   void _markMessagesAsRead(List<QueryDocumentSnapshot> docs) async {
     if (currentUserId == null) return;
 
@@ -55,13 +68,8 @@ class _ChatScreenState extends State<ChatScreen> {
       final bool isRead = data['isRead'] ?? false;
       final List readBy = List.from(data['readBy'] ?? []);
 
-      // If the message was not sent by me, and isRead is false
       if (senderId != currentUserId && (!isRead || !readBy.contains(currentUserId))) {
-        DocumentReference msgRef = FirebaseFirestore.instance
-            .collection('chat')
-            .doc(effectiveChatId)
-            .collection('messages')
-            .doc(doc.id);
+        DocumentReference msgRef = _messagesRef.doc(doc.id);
 
         batch.update(msgRef, {
           'isRead': true,
@@ -73,10 +81,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
     if (hasUpdates) {
       await batch.commit().catchError((e) => debugPrint("Batch mark read error: $e"));
-      // Also update the state on the main Chat document
-      FirebaseFirestore.instance.collection('chat').doc(effectiveChatId).update({
-        'isRead': true,
-      }).catchError((e) => debugPrint("Chat doc read error: $e"));
+      if (!isGroupChat) {
+        FirebaseFirestore.instance.collection('chat').doc(effectiveChatId).update({
+          'isRead': true,
+        }).catchError((e) => debugPrint("Chat doc read error: $e"));
+      }
     }
   }
 
@@ -85,7 +94,7 @@ class _ChatScreenState extends State<ChatScreen> {
     var doc = await FirebaseFirestore.instance.collection('lawyers').doc(currentUserId).get();
     if (doc.exists) {
       setState(() {
-        _lawyerName = doc.data()?['fullName'] ?? "Lawyer";
+        _lawyerName = doc.data()?['fullName'] ?? doc.data()?['name'] ?? "Lawyer";
       });
     }
   }
@@ -94,16 +103,13 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_messageController.text.trim().isEmpty || currentUserId == null) return;
 
     final String text = _messageController.text.trim();
-    final String chatId = effectiveChatId;
     final Map<String, dynamic>? replyData = _replyMessage;
 
     _messageController.clear();
     setState(() => _replyMessage = null);
 
     try {
-      DocumentReference chatDoc = FirebaseFirestore.instance.collection('chat').doc(chatId);
-
-      await chatDoc.collection('messages').add({
+      await _messagesRef.add({
         'text': text,
         'senderId': currentUserId,
         'senderName': _lawyerName ?? "Lawyer",
@@ -118,17 +124,20 @@ class _ChatScreenState extends State<ChatScreen> {
         } : null,
       });
 
-      await chatDoc.set({
-        'lastMessage': text,
-        'lastMessageTime': FieldValue.serverTimestamp(),
-        'lastSenderId': currentUserId,
-        'isRead': false,
-        'readBy': [currentUserId],
-        'updatedAt': FieldValue.serverTimestamp(),
-        'users': FieldValue.arrayUnion([currentUserId, widget.clientId]),
-        'clientName': widget.clientName,
-        'status': 'Active',
-      }, SetOptions(merge: true));
+      if (!isGroupChat) {
+        DocumentReference chatDoc = FirebaseFirestore.instance.collection('chat').doc(effectiveChatId);
+        await chatDoc.set({
+          'lastMessage': text,
+          'lastMessageTime': FieldValue.serverTimestamp(),
+          'lastSenderId': currentUserId,
+          'isRead': false,
+          'readBy': [currentUserId],
+          'updatedAt': FieldValue.serverTimestamp(),
+          'users': FieldValue.arrayUnion([currentUserId, widget.clientId]),
+          'clientName': widget.clientName,
+          'status': 'Active',
+        }, SetOptions(merge: true));
+      }
 
       _scrollToBottom();
     } catch (e) {
@@ -139,12 +148,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void _deleteForMe(String messageId) async {
     if (currentUserId == null) return;
     try {
-      await FirebaseFirestore.instance
-          .collection('chat')
-          .doc(effectiveChatId)
-          .collection('messages')
-          .doc(messageId)
-          .update({
+      await _messagesRef.doc(messageId).update({
         'deletedFor': FieldValue.arrayUnion([currentUserId]),
       });
     } catch (e) {
@@ -154,12 +158,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _deleteForEveryone(String messageId) async {
     try {
-      await FirebaseFirestore.instance
-          .collection('chat')
-          .doc(effectiveChatId)
-          .collection('messages')
-          .doc(messageId)
-          .update({
+      await _messagesRef.doc(messageId).update({
         'text': 'This message was deleted',
         'isDeletedForEveryone': true,
         'replyTo': null,
@@ -213,29 +212,6 @@ class _ChatScreenState extends State<ChatScreen> {
     return DateFormat('hh:mm a').format(ts.toDate());
   }
 
-  // Double Tick Logic
-  Widget _buildTickIcon(Map<String, dynamic> data, bool isMe) {
-    if (!isMe || (data['isDeletedForEveryone'] ?? false)) return const SizedBox.shrink();
-
-    bool isRead = data['isRead'] ?? false;
-    List readBy = List.from(data['readBy'] ?? []);
-
-    // If isRead is true OR another user has been added to the readBy array
-    bool showBlueTick = isRead || readBy.length > 1;
-
-    // Direct WhatsApp Blue (#34B7F1)
-    Color tickColor = showBlueTick ? const Color(0xFF34B7F1) : const Color(0xFF8696A0);
-
-    return Padding(
-      padding: const EdgeInsets.only(left: 4),
-      child: Icon(
-        Icons.done_all,
-        size: 16,
-        color: tickColor,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     const Color navyBlue = Color(0xFF101D3D);
@@ -254,12 +230,7 @@ class _ChatScreenState extends State<ChatScreen> {
         children: [
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('chat')
-                  .doc(effectiveChatId)
-                  .collection('messages')
-                  .orderBy('timestamp', descending: true)
-                  .snapshots(),
+              stream: _messagesRef.orderBy('timestamp', descending: true).snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
@@ -269,7 +240,6 @@ class _ChatScreenState extends State<ChatScreen> {
                   return !deletedFor.contains(currentUserId);
                 }).toList();
 
-                // Automatically execute mark as read once frame rendering completes
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   _markMessagesAsRead(docs);
                 });
@@ -283,6 +253,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     final doc = docs[index];
                     final data = doc.data() as Map<String, dynamic>;
                     final bool isMe = data['senderId'] == currentUserId;
+                    final String senderName = data['senderName'] ?? "Lawyer";
                     final ts = data['timestamp'] as Timestamp?;
                     final bool isDeletedForEveryone = data['isDeletedForEveryone'] ?? false;
 
@@ -324,6 +295,18 @@ class _ChatScreenState extends State<ChatScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
+                                    if (isGroupChat && !isMe && !isDeletedForEveryone)
+                                      Padding(
+                                        padding: const EdgeInsets.only(bottom: 4),
+                                        child: Text(
+                                          senderName,
+                                          style: const TextStyle(
+                                            color: Color(0xFFC5A358),
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ),
                                     if (data['replyTo'] != null && !isDeletedForEveryone)
                                       Container(
                                         margin: const EdgeInsets.only(bottom: 5),
@@ -366,13 +349,7 @@ class _ChatScreenState extends State<ChatScreen> {
                               ),
                               Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(_formatTime(ts), style: TextStyle(color: Colors.grey[600], fontSize: 10)),
-                                    _buildTickIcon(data, isMe),
-                                  ],
-                                ),
+                                child: Text(_formatTime(ts), style: TextStyle(color: Colors.grey[600], fontSize: 10)),
                               ),
                             ],
                           ),
