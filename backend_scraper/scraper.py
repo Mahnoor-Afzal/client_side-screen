@@ -202,7 +202,7 @@ def create_hearing_notifications(db, case_doc_id, case_data, scraped_result):
     # 1. Notification for LAWYER
     if lawyer_id:
         lawyer_msg = (
-            f"Hearing Scheduled: Case #{case_number} ({client_name}) is set for "
+            f"Hearing Scheduled: Case #{case_number} for {client_name} is set for "
             f"{hearing_date} at {hearing_time} before {judge_name}."
         )
         notifications_ref.add({
@@ -210,26 +210,36 @@ def create_hearing_notifications(db, case_doc_id, case_data, scraped_result):
             'role': 'lawyer',
             'caseId': case_doc_id,
             'title': f"Hearing Alert: Case #{case_number}",
+            'body': lawyer_msg,
             'message': lawyer_msg,
+            'caseNumber': case_number,
+            'nextHearingDate': hearing_date,
+            'hearingTime': hearing_time,
             'type': 'hearing_update',
             'isRead': False,
+            'timestamp': firestore.SERVER_TIMESTAMP,
             'createdAt': firestore.SERVER_TIMESTAMP
         })
 
     # 2. Notification for CLIENT
     if client_id:
         client_msg = (
-            f"Dear {client_name}, your court case #{case_number} ({court_name}) "
-            f"has a new hearing date: {hearing_date} at {hearing_time}."
+            f"Dear {client_name}, your court case #{case_number} has been updated "
+            f"with a new hearing date: {hearing_date} at {hearing_time}."
         )
         notifications_ref.add({
             'userId': client_id,
             'role': 'client',
             'caseId': case_doc_id,
-            'title': f"Upcoming Hearing Update - Case #{case_number}",
+            'title': f"Hearing Alert: Case #{case_number}",
+            'body': client_msg,
             'message': client_msg,
+            'caseNumber': case_number,
+            'nextHearingDate': hearing_date,
+            'hearingTime': hearing_time,
             'type': 'hearing_update',
             'isRead': False,
+            'timestamp': firestore.SERVER_TIMESTAMP,
             'createdAt': firestore.SERVER_TIMESTAMP
         })
 
@@ -245,8 +255,8 @@ def start_automated_scraper(interval_seconds=60):
             collection_name = 'cases'
             cases_ref = db.collection(collection_name)
 
-            # Fetching cases where scrapingStatus is Pending
-            docs = list(cases_ref.where('scrapingStatus', 'in', ['Pending']).stream())
+            # Fetching cases where scrapingStatus is Pending or Synced
+            docs = list(cases_ref.where('scrapingStatus', 'in', ['Pending', 'Synced']).stream())
 
             if not docs:
                 print("No pending cases found.")
@@ -281,16 +291,27 @@ def start_automated_scraper(interval_seconds=60):
                         new_date = scraped_result.get('nextHearingDate')
                         existing_date = data.get('nextHearingDate')
 
+                        # Lawyer ka pehle se enter kiya hua data preserve karne ke liye:
+                        lawyer_judge = data.get('judgeName')
+                        lawyer_stage = data.get('caseStage')
+                        lawyer_petitioner = data.get('petitioner')
+                        lawyer_respondent = data.get('respondent')
+
                         update_data = {
+                            # 1. Date aur Time hamesha scraper/dummy se auto-update hongi
                             'nextHearingDate': new_date or data.get('nextHearingDate', 'N/A'),
                             'hearingTime': scraped_result.get('hearingTime') or data.get('hearingTime', '09:00 AM'),
-                            'judgeName': scraped_result.get('judgeName') or data.get('judgeName', 'N/A'),
-                            'caseStage': scraped_result.get('caseStage') or data.get('caseStage', 'N/A'),
-                            'petitioner': scraped_result.get('petitioner') or data.get('petitioner', 'N/A'),
-                            'respondent': scraped_result.get('respondent') or data.get('respondent', 'N/A'),
-                            'status': 'Active', # strictly "Active"
+
+                            # 2. Agar Lawyer ne data add kiya hua hai toh WAHI RAHEGA (Overwrite nahi hoga)
+                            'judgeName': lawyer_judge if (lawyer_judge and lawyer_judge != 'N/A') else (scraped_result.get('judgeName') or 'N/A'),
+                            'caseStage': lawyer_stage if (lawyer_stage and lawyer_stage != 'N/A') else (scraped_result.get('caseStage') or 'N/A'),
+                            'petitioner': lawyer_petitioner if (lawyer_petitioner and lawyer_petitioner != 'N/A') else (scraped_result.get('petitioner') or 'N/A'),
+                            'respondent': lawyer_respondent if (lawyer_respondent and lawyer_respondent != 'N/A') else (scraped_result.get('respondent') or 'N/A'),
+
+                            # 3. Baaki System Fields
+                            'status': 'Active',
                             'scrapingStatus': 'Synced',
-                            'updatedAt': firestore.SERVER_TIMESTAMP # standardized key
+                            'updatedAt': firestore.SERVER_TIMESTAMP
                         }
 
                         # Update hearing history if date has changed
@@ -336,4 +357,4 @@ def start_automated_scraper(interval_seconds=60):
         time.sleep(interval_seconds)
 
 if __name__ == "__main__":
-    start_automated_scraper(interval_seconds=60)
+    start_automated_scraper(interval_seconds=1800)
