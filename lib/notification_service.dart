@@ -75,19 +75,24 @@ class NotificationService {
 
   static void _showLocalNotification(RemoteMessage message, AndroidNotificationChannel channel) {
     RemoteNotification? notification = message.notification;
-    AndroidNotification? android = message.notification?.android;
+    
+    // Extracting Title and Body from either notification object or data payload
+    String title = notification?.title ?? message.data['title'] ?? 'Hearing Alert';
+    String? body = notification?.body ?? message.data['message'] ?? message.data['body'];
 
-    if (notification != null && android != null) {
+    if (body != null) {
       _localNotifications.show(
         notification.hashCode,
-        notification.title,
-        notification.body,
+        title,
+        body,
         NotificationDetails(
           android: AndroidNotificationDetails(
             channel.id,
             channel.name,
             channelDescription: channel.description,
-            icon: android.smallIcon,
+            importance: Importance.max,
+            priority: Priority.high,
+            icon: message.notification?.android?.smallIcon ?? '@mipmap/ic_launcher',
           ),
         ),
       );
