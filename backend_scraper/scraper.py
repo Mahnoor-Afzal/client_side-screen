@@ -245,116 +245,113 @@ def create_hearing_notifications(db, case_doc_id, case_data, scraped_result):
 
     print(f"[{case_doc_id}] -> Professional notifications created for Lawyer and Client ({client_name}).")
 
-def start_automated_scraper(interval_seconds=60):
+def start_automated_scraper():
     db = initialize_firebase()
-    print(f"Automated Scraper Service Started (Interval: {interval_seconds}s)...")
+    print("Automated Scraper Service Running...")
 
-    while True:
-        try:
-            print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking for cases...")
-            collection_name = 'cases'
-            cases_ref = db.collection(collection_name)
+    try:
+        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking for cases...")
+        collection_name = 'cases'
+        cases_ref = db.collection(collection_name)
 
-            # Fetching cases where scrapingStatus is Pending or Synced
-            docs = list(cases_ref.where('scrapingStatus', 'in', ['Pending', 'Synced']).stream())
+        # Fetching cases where scrapingStatus is Pending or Synced
+        docs = list(cases_ref.where('scrapingStatus', 'in', ['Pending', 'Synced']).stream())
 
-            if not docs:
-                print("No pending cases found.")
-            else:
-                stats = {"processed": 0, "updated": 0, "not_found": 0, "errors": 0}
+        if not docs:
+            print("No pending cases found.")
+        else:
+            stats = {"processed": 0, "updated": 0, "not_found": 0, "errors": 0}
 
-                for doc in docs:
-                    data = doc.to_dict()
-                    doc_id = doc.id
+            for doc in docs:
+                data = doc.to_dict()
+                doc_id = doc.id
 
-                    # Only process Punjab District Judiciary or High Court (Demo) cases
-                    court_name = data.get('courtName', '').lower()
-                    if 'district' not in court_name and 'high' not in court_name:
-                        continue
+                # Only process Punjab District Judiciary or High Court (Demo) cases
+                court_name = data.get('courtName', '').lower()
+                if 'district' not in court_name and 'high' not in court_name:
+                    continue
 
-                    stats["processed"] += 1
+                stats["processed"] += 1
 
-                    district = data.get('district', 'Punjab')
-                    case_type = data.get('caseType', '')
-                    case_number = data.get('caseNumber')
-                    case_year = data.get('caseYear')
+                district = data.get('district', 'Punjab')
+                case_type = data.get('caseType', '')
+                case_number = data.get('caseNumber')
+                case_year = data.get('caseYear')
 
-                    if not all([case_number, case_year]):
-                        print(f"[{doc_id}] Skipping: Missing case details.")
-                        continue
+                if not all([case_number, case_year]):
+                    print(f"[{doc_id}] Skipping: Missing case details.")
+                    continue
 
-                    print(f"[{doc_id}] Fetching: {district} | {case_number}/{case_year}...")
+                print(f"[{doc_id}] Fetching: {district} | {case_number}/{case_year}...")
 
-                    scraped_result = scrape_court_date(district, case_type, case_number, case_year, court_name)
+                scraped_result = scrape_court_date(district, case_type, case_number, case_year, court_name)
 
-                    if scraped_result and scraped_result.get('found'):
-                        new_date = scraped_result.get('nextHearingDate')
-                        existing_date = data.get('nextHearingDate')
+                if scraped_result and scraped_result.get('found'):
+                    new_date = scraped_result.get('nextHearingDate')
+                    existing_date = data.get('nextHearingDate')
 
-                        # Lawyer ka pehle se enter kiya hua data preserve karne ke liye:
-                        lawyer_judge = data.get('judgeName')
-                        lawyer_stage = data.get('caseStage')
-                        lawyer_petitioner = data.get('petitioner')
-                        lawyer_respondent = data.get('respondent')
+                    # Lawyer ka pehle se enter kiya hua data preserve karne ke liye:
+                    lawyer_judge = data.get('judgeName')
+                    lawyer_stage = data.get('caseStage')
+                    lawyer_petitioner = data.get('petitioner')
+                    lawyer_respondent = data.get('respondent')
 
-                        update_data = {
-                            # 1. Date aur Time hamesha scraper/dummy se auto-update hongi
-                            'nextHearingDate': new_date or data.get('nextHearingDate', 'N/A'),
-                            'hearingTime': scraped_result.get('hearingTime') or data.get('hearingTime', '09:00 AM'),
+                    update_data = {
+                        # 1. Date aur Time hamesha scraper/dummy se auto-update hongi
+                        'nextHearingDate': new_date or data.get('nextHearingDate', 'N/A'),
+                        'hearingTime': scraped_result.get('hearingTime') or data.get('hearingTime', '09:00 AM'),
 
-                            # 2. Agar Lawyer ne data add kiya hua hai toh WAHI RAHEGA (Overwrite nahi hoga)
-                            'judgeName': lawyer_judge if (lawyer_judge and lawyer_judge != 'N/A') else (scraped_result.get('judgeName') or 'N/A'),
-                            'caseStage': lawyer_stage if (lawyer_stage and lawyer_stage != 'N/A') else (scraped_result.get('caseStage') or 'N/A'),
-                            'petitioner': lawyer_petitioner if (lawyer_petitioner and lawyer_petitioner != 'N/A') else (scraped_result.get('petitioner') or 'N/A'),
-                            'respondent': lawyer_respondent if (lawyer_respondent and lawyer_respondent != 'N/A') else (scraped_result.get('respondent') or 'N/A'),
+                        # 2. Agar Lawyer ne data add kiya hua hai toh WAHI RAHEGA (Overwrite nahi hoga)
+                        'judgeName': lawyer_judge if (lawyer_judge and lawyer_judge != 'N/A') else (scraped_result.get('judgeName') or 'N/A'),
+                        'caseStage': lawyer_stage if (lawyer_stage and lawyer_stage != 'N/A') else (scraped_result.get('caseStage') or 'N/A'),
+                        'petitioner': lawyer_petitioner if (lawyer_petitioner and lawyer_petitioner != 'N/A') else (scraped_result.get('petitioner') or 'N/A'),
+                        'respondent': lawyer_respondent if (lawyer_respondent and lawyer_respondent != 'N/A') else (scraped_result.get('respondent') or 'N/A'),
 
-                            # 3. Baaki System Fields
-                            'status': 'Active',
-                            'scrapingStatus': 'Synced',
-                            'updatedAt': firestore.SERVER_TIMESTAMP
+                        # 3. Baaki System Fields
+                        'status': 'Active',
+                        'scrapingStatus': 'Synced',
+                        'updatedAt': firestore.SERVER_TIMESTAMP
+                    }
+
+                    # Update hearing history if date has changed
+                    if existing_date and new_date and existing_date != new_date and existing_date != 'N/A':
+                        history_item = {
+                            'hearingDate': existing_date,
+                            'hearingTime': data.get('hearingTime', 'N/A'),
+                            'judgeName': data.get('judgeName', 'N/A'),
+                            'status': 'Completed'
                         }
+                        update_data['hearingHistory'] = firestore.ArrayUnion([history_item])
 
-                        # Update hearing history if date has changed
-                        if existing_date and new_date and existing_date != new_date and existing_date != 'N/A':
-                            history_item = {
-                                'hearingDate': existing_date,
-                                'hearingTime': data.get('hearingTime', 'N/A'),
-                                'judgeName': data.get('judgeName', 'N/A'),
-                                'status': 'Completed'
-                            }
-                            update_data['hearingHistory'] = firestore.ArrayUnion([history_item])
+                    try:
+                        doc.reference.update(update_data)
 
                         try:
-                            doc.reference.update(update_data)
-
-                            try:
-                                # Notification bhejna (Lawyer aur Client ko alert karne ke liye)
-                                create_hearing_notifications(db, doc_id, data, scraped_result)
-                            except Exception as e:
-                                print(f"[{doc_id}] -> Notification Error: {e}")
-
-                            stats["updated"] += 1
-                            print(f"[{doc_id}] -> UPDATED successfully.")
+                            # Notification bhejna (Lawyer aur Client ko alert karne ke liye)
+                            create_hearing_notifications(db, doc_id, data, scraped_result)
                         except Exception as e:
-                            stats["errors"] += 1
-                            print(f"[{doc_id}] -> Update Error: {e}")
-                    else:
-                        print(f"[{doc_id}] -> NOT FOUND on portal.")
-                        try:
-                            doc.reference.update({
-                                'scrapingStatus': 'Failed',
-                                'updatedAt': firestore.SERVER_TIMESTAMP
-                            })
-                            stats["not_found"] += 1
-                        except Exception as e:
-                            print(f"[{doc_id}] -> Status Update Error: {e}")
+                            print(f"[{doc_id}] -> Notification Error: {e}")
 
-                print(f"Batch completed. Stats: {stats}")
+                        stats["updated"] += 1
+                        print(f"[{doc_id}] -> UPDATED successfully.")
+                    except Exception as e:
+                        stats["errors"] += 1
+                        print(f"[{doc_id}] -> Update Error: {e}")
+                else:
+                    print(f"[{doc_id}] -> NOT FOUND on portal.")
+                    try:
+                        doc.reference.update({
+                            'scrapingStatus': 'Failed',
+                            'updatedAt': firestore.SERVER_TIMESTAMP
+                        })
+                        stats["not_found"] += 1
+                    except Exception as e:
+                        print(f"[{doc_id}] -> Status Update Error: {e}")
 
-        except Exception as e:
-            print(f"Loop Error: {e}")
+            print(f"Batch completed. Stats: {stats}")
 
-        time.sleep(interval_seconds)
+    except Exception as e:
+        print(f"Execution Error: {e}")
 
 if __name__ == "__main__":
-    start_automated_scraper(interval_seconds=1800)
+    start_automated_scraper()
