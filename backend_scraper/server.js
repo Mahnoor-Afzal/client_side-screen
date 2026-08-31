@@ -1,133 +1,64 @@
 const express = require('express');
-const admin = require('firebase-admin');
-const axios = require('axios');
-const cheerio = require('cheerio');
+const { exec } = require('child_process');
+const path = require('path');
 const dotenv = require('dotenv');
 const cron = require('node-cron');
 
 dotenv.config();
 
 const app = express();
+app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
-// Firebase Admin Initialization
-let serviceAccount;
-if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-} else {
-    try {
-        serviceAccount = require('./serviceAccountKey.json');
-    } catch (e) {
-        console.warn("serviceAccountKey.json not found. Ensure FIREBASE_SERVICE_ACCOUNT env var is set.");
-    }
-}
+// Helper function to execute python scraper
+function executePythonScraper(res = null) {
+    console.log("Executing Python Scraper script...");
+    const pythonScriptPath = path.join(__dirname, 'scraper.py');
 
-if (serviceAccount) {
-    admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-    });
-    console.log("Firebase Admin initialized successfully.");
-}
-
-const db = admin.firestore();
-
-// Scraper Logic Function
-async function runScraper() {
-    console.log("Starting Scraper Job...");
-    const stats = { processed: 0, updated: 0, errors: 0 };
-
-    try {
-        // Query cases needing update from District Judiciary Punjab
-        // Note: Using 'cases' as requested in prompt, adjust to 'Case request' if needed
-        const snapshot = await db.collection('cases')
-            .where('courtName', '==', 'District Judiciary Punjab')
-            .get();
-
-        if (snapshot.empty) {
-            console.log("No matching cases found.");
-            return stats;
-        }
-
-        for (const doc of snapshot.docs) {
-            stats.processed++;
-            const data = doc.data();
-            const { district, caseType, caseNumber, caseYear, nextHearingDate } = data;
-
-            if (!district || !caseNumber || !caseYear) continue;
-
-            try {
-                // Construct URL for specific district
-                const districtLower = district.toLowerCase().trim();
-                const url = `https://${districtLower}.dc.lhc.gov.pk/case_info/case_search`;
-
-                // Search Request (Usually POST on these portals)
-                const response = await axios.post(url, new URLSearchParams({
-                    'case_type': caseType || '',
-                    'case_number': caseNumber,
-                    'case_year': caseYear,
-                    'submit': 'Search'
-                }), {
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    timeout: 10000
+    // Command to execute scraper.py
+    exec(`python "${pythonScriptPath}"`, (error, stdout, stderr) => {
+        if (error) {
+            console.error(`Scraper Execution Error: ${error.message}`);
+            if (res) {
+                return res.status(500).json({
+                    success: false,
+                    message: "Scraper execution failed",
+                    error: error.message
                 });
-
-                const $ = cheerio.load(response.data);
-                let scrapedDate = "";
-
-                // Parsing logic for Punjab Judiciary portals
-                $("table tr").each((i, el) => {
-                    const rowText = $(el).text().toLowerCase();
-                    if (rowText.includes("next date") || rowText.includes("hearing date")) {
-                        scrapedDate = $(el).find("td").last().text().trim();
-                    }
-                });
-
-                if (!scrapedDate) {
-                    scrapedDate = $("td:contains('Next Date')").next().text().trim();
-                }
-
-                if (scrapedDate && scrapedDate !== nextHearingDate) {
-                    await doc.ref.update({
-                        nextHearingDate: scrapedDate,
-                        lastScrapedAt: admin.firestore.FieldValue.serverTimestamp(),
-                        scrapingStatus: "Updated"
-                    });
-                    stats.updated++;
-                    console.log(`Updated Case ${doc.id}: New Date ${scrapedDate}`);
-                } else {
-                    await doc.ref.update({
-                        lastCheckedAt: admin.firestore.FieldValue.serverTimestamp(),
-                        scrapingStatus: scrapedDate ? "No Change" : "Not Found"
-                    });
-                }
-            } catch (err) {
-                stats.errors++;
-                console.error(`Error processing case ${doc.id}:`, err.message);
             }
+            return;
         }
-    } catch (err) {
-        console.error("Scraper Error:", err);
-    }
-    return stats;
+
+        console.log(`Scraper Output:\n${stdout}`);
+        if (res) {
+            return res.status(200).json({
+                success: true,
+                message: "Instant scraping completed and Firestore updated successfully!"
+            });
+        }
+    });
 }
 
-// Routes
+// 1. Root Test Route
 app.get('/', (req, res) => {
     res.send("Smart Legal Assistant Scraper Server is Running Live!");
 });
 
-app.get('/run-scraper', async (req, res) => {
-    const results = await runScraper();
-    res.json({
-        message: "Scraper execution finished",
-        results: results
-    });
+// 2. Instant Scraper Trigger Endpoint (Called by Mobile App / Flutter)
+app.post('/api/trigger-scrape', (req, res) => {
+    console.log("Instant Scrape Request Received from Mobile App!");
+    executePythonScraper(res);
 });
 
-// Scheduled Task: Daily at 1:00 AM Pakistan Time (Asia/Karachi)
-// Cron: 0 1 * * *
+// 3. Alternative GET Route for quick browser testing
+app.get('/run-scraper', (req, res) => {
+    executePythonScraper(res);
+});
+
+// 4. Scheduled Task: Daily at 1:00 AM Pakistan Time (Asia/Karachi)
 cron.schedule('0 1 * * *', () => {
-    runScraper();
+    console.log("Running scheduled daily scraper at 1:00 AM PKT...");
+    executePythonScraper();
 }, {
     scheduled: true,
     timezone: "Asia/Karachi"
