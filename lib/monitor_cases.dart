@@ -322,20 +322,18 @@ class _MonitorCasesState extends State<MonitorCases> {
         String title;
 
         if (statusFilter == "Ongoing Cases") {
-          title = (caseData['type'] ?? caseData['caseType'] ?? caseData['title'] ?? 'File a Suit').toString();
+          title = (caseData['type'] ?? caseData['caseType'] ?? caseData['caseCategory'] ?? caseData['title'] ?? 'File a Suit').toString();
         } else if (statusFilter == "Active") {
           String caseNo = (caseData['caseNumber'] ?? caseData['caseNo'] ?? '').toString();
           String caseYear = (caseData['caseYear'] ?? caseData['year'] ?? '').toString();
-          String petitioner = (caseData['petitioner'] ?? caseData['clientName'] ?? '').toString();
-          String respondent = (caseData['respondent'] ?? '').toString();
 
-          if (caseNo.isNotEmpty && petitioner.isNotEmpty && respondent.isNotEmpty) {
-            title = "Case #$caseNo${caseYear.isNotEmpty ? " ($caseYear)" : ""} - $petitioner vs $respondent";
+          if (caseNo.isNotEmpty) {
+            title = "Case #$caseNo${caseYear.isNotEmpty ? " ($caseYear)" : ""}";
           } else {
-            title = (caseData['caseType'] ?? caseData['title'] ?? 'Untitled Case').toString();
+            title = (caseData['caseType'] ?? caseData['caseCategory'] ?? caseData['title'] ?? 'Untitled Case').toString();
           }
         } else {
-          title = (caseData['caseType'] ?? caseData['title'] ?? 'Untitled Case').toString();
+          title = (caseData['caseType'] ?? caseData['caseCategory'] ?? caseData['title'] ?? 'Untitled Case').toString();
         }
 
         String client = (caseData['clientName'] ?? caseData['client'] ?? caseData['userName'] ?? 'N/A').toString();
@@ -476,7 +474,7 @@ class _MonitorCasesState extends State<MonitorCases> {
   }
 
   void _showDetailsModal(BuildContext context, Map<String, dynamic> caseData, String formattedDate) {
-    String title = (caseData['type'] ?? caseData['caseType'] ?? caseData['title'] ?? 'Untitled Case').toString();
+    String title = (caseData['type'] ?? caseData['caseType'] ?? caseData['caseCategory'] ?? caseData['title'] ?? 'Untitled Case').toString();
     String requestType = caseData['requestType'] ?? 'Case Request';
     String clientName = (caseData['clientName'] ?? caseData['client'] ?? caseData['userName'] ?? 'N/A').toString();
     String clientEmail = (caseData['clientEmail'] ?? caseData['userEmail'] ?? 'N/A').toString();
