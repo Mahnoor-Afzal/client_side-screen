@@ -11,6 +11,7 @@ import 'Hearing_details.dart';
 import 'documents_screen.dart';
 import 'consultation_screen.dart';
 import 'chat_screen.dart';
+import 'coordination_screen.dart';
 
 /// Helper function to get total unread count for bell icons across the app
 Stream<int> getTotalUnreadNotificationsCount(String currentUid) {
@@ -342,17 +343,54 @@ class _NotificationScreenState extends State<NotificationScreen> {
   }
 
   void _navigateToTarget(BuildContext context, Map<String, dynamic> item) {
+    // Basic extraction with lowercasing for easier matching
     String title = (item['title'] ?? '').toString().toLowerCase();
     String type = (item['type'] ?? '').toString().toLowerCase();
     String source = (item['source'] ?? '').toString().toLowerCase();
     String body = (item['body'] ?? '').toString().toLowerCase();
+    String chatType = (item['chatType'] ?? item['category'] ?? '').toString().toLowerCase();
 
+    // IDs and Names extraction
     String clientId = item['senderId'] ?? item['clientId'] ?? item['userId'] ?? '';
-    String clientName = item['senderName'] ?? item['clientName'] ?? item['fullName'] ?? item['title'] ?? 'Client';
-    String caseId = item['caseId'] ?? item['requestId'] ?? item['docId'] ?? '';
+    
+    // For Team Chat, we prefer client names or case types over individual sender names
+    String clientName = item['clientName'] ?? item['fullName'] ?? item['caseType'] ?? item['senderName'] ?? 'Team Chat';
+    
+    // Improved caseId extraction logic - Critical for Team Chat and Hearing screens
+    String caseId = item['caseId'] ?? item['chatId'] ?? item['requestId'] ?? '';
+    // If caseId is still empty, and the source isn't the general notifications collection, docId might be the ID we need.
+    if (caseId.isEmpty && source != 'notifications_col') {
+      caseId = item['docId'] ?? '';
+    }
+
     String consultationId = item['consultationId'] ?? item['requestId'] ?? item['docId'] ?? '';
 
-    // 1. CHAT NOTIFICATIONS: Opens Chat Screen
+    // 1. TEAM CHAT / COORDINATION: Navigation to TeamChatScreen
+    // Higher priority check for team-related keywords
+    if (chatType == 'team' || 
+        type == 'team_chat' || 
+        type == 'coordination' ||
+        title.contains('team') || 
+        body.contains('team') || 
+        title.contains('coordination') || 
+        body.contains('coordination')) {
+
+      if (caseId.isNotEmpty) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => TeamChatScreen(
+              caseId: caseId,
+              clientName: clientName,
+              currentUid: uid ?? '',
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
+    // 2. REGULAR CHAT: Navigation to ChatScreen (Lawyer-Client 1-on-1)
     if (type.contains('chat') || type.contains('message') || source == 'chat') {
       Navigator.push(
         context,
@@ -369,7 +407,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
     Widget? target;
 
-    // 2. DOCUMENTS VAULT (Checking title, type, body, or source for wakalatnama/signed/document)
+    // 3. DOCUMENTS VAULT
     if (title.contains('wakalatnama') ||
         type.contains('wakalatnama') ||
         title.contains('signed') ||
@@ -380,15 +418,15 @@ class _NotificationScreenState extends State<NotificationScreen> {
         type.contains('document')) {
       target = const DocumentsScreen();
     }
-    // 3. CONSULTATIONS
+    // 4. CONSULTATIONS
     else if (title.contains('consultation') || type.contains('consultation')) {
       target = const ConsultationScreen();
     }
-    // 4. CASE REQUESTS
+    // 5. CASE REQUESTS
     else if (title.contains('suit') || type.contains('suit_request') || source == 'suit_request' || type.contains('case_request') || source == 'case_request') {
       target = const CaseRequestsScreen();
     }
-    // 5. HEARING DETAILS
+    // 6. HEARING DETAILS
     else if (title.contains('hearing') || type.contains('hearing')) {
       target = HearingDetailsScreen(
         caseId: caseId,
@@ -396,12 +434,12 @@ class _NotificationScreenState extends State<NotificationScreen> {
         clientId: clientId,
       );
     }
-    // 6. OTHER NOTIFICATIONS
+    // 7. OTHER NOTIFICATIONS
     else {
       target = null;
     }
 
-    // Navigate only if a target screen is defined
+    // Finalize navigation
     if (target != null) {
       Navigator.push(context, MaterialPageRoute(builder: (_) => target!));
     }

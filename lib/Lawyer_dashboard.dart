@@ -17,6 +17,7 @@ import 'hearings_list_screen.dart';
 import 'coordination_screen.dart';
 import 'notification_screen.dart';
 import 'messages_list_screen.dart';
+import 'closed_cases_screen.dart';
 
 class LawyerDashboard extends StatefulWidget {
   const LawyerDashboard({super.key});
@@ -686,6 +687,7 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
                     _buildDrawerItem(Icons.assignment_ind, "Case Requests", onTap: () => _navigateTo(const CaseRequestsScreen())),
                     _buildDrawerItem(Icons.folder_open, "Active Cases", onTap: () => _navigateTo(const ActiveCasesScreen())),
                     _buildDrawerItem(Icons.gavel, "Scheduled Hearings", onTap: () => _navigateTo(const HearingsListScreen())),
+                    _buildDrawerItem(Icons.archive, "Closed Cases", onTap: () => _navigateTo(const ClosedCasesScreen())),
                   ],
                 ),
               ),
