@@ -38,35 +38,35 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
     List<Map<String, String>> clients = [];
 
     try {
-      List<String> collections = ['cases', 'Case request', 'coordination_requests', 'suit_a_file_request'];
+      var querySnap = await FirebaseFirestore.instance.collection('suit_a_file_request').get();
+      for (var doc in querySnap.docs) {
+        var data = doc.data();
 
-      for (String col in collections) {
-        var querySnap = await FirebaseFirestore.instance.collection(col).get();
-        for (var doc in querySnap.docs) {
-          var data = doc.data();
+        // Check if status is accepted
+        String status = (data['status'] ?? "").toString().trim().toLowerCase();
+        if (status != 'accepted') continue;
 
-          String lId = (data['lawyerId'] ?? data['lawyerid'] ?? data['senderId'] ?? data['mainLawyerId'] ?? "").toString().trim();
-          String rId = (data['receiverId'] ?? data['supportingLawyerId'] ?? "").toString().trim();
+        String lId = (data['lawyerId'] ?? data['lawyerid'] ?? data['senderId'] ?? data['mainLawyerId'] ?? "").toString().trim();
+        String rId = (data['receiverId'] ?? data['supportingLawyerId'] ?? "").toString().trim();
 
-          List assigned = [];
-          if (data['assignedLawyers'] is List) assigned.addAll(data['assignedLawyers']);
-          if (data['users'] is List) assigned.addAll(data['users']);
-          List<String> assignedIds = assigned.map((e) => e.toString().trim()).toList();
+        List assigned = [];
+        if (data['assignedLawyers'] is List) assigned.addAll(data['assignedLawyers']);
+        if (data['users'] is List) assigned.addAll(data['users']);
+        List<String> assignedIds = assigned.map((e) => e.toString().trim()).toList();
 
-          bool isUserInvolved = (lId == uid) || (rId == uid) || assignedIds.contains(uid);
+        bool isUserInvolved = (lId == uid) || (rId == uid) || assignedIds.contains(uid);
 
-          if (isUserInvolved) {
-            String cId = (data['clientId'] ?? data['clientid'] ?? data['userId'] ?? "").toString().trim();
-            String cName = (data['clientName'] ?? data['userName'] ?? "Client").toString().trim();
+        if (isUserInvolved) {
+          String cId = (data['clientId'] ?? data['clientid'] ?? data['userId'] ?? "").toString().trim();
+          String cName = (data['clientName'] ?? data['userName'] ?? "Client").toString().trim();
 
-            if (cId.isNotEmpty && !clients.any((element) => element['id'] == cId)) {
-              clients.add({'id': cId, 'name': cName});
-            }
+          if (cId.isNotEmpty && !clients.any((element) => element['id'] == cId)) {
+            clients.add({'id': cId, 'name': cName});
           }
         }
       }
     } catch (e) {
-      debugPrint("Error fetching active clients: $e");
+      debugPrint("Error fetching active cases clients: $e");
     } finally {
       if (mounted) setState(() => _isUploading = false);
     }
@@ -320,6 +320,20 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                   return isDirectParty;
                 }).toList() ?? [];
 
+                // Sort documents by timestamp (newest first)
+                docs.sort((a, b) {
+                  var dataA = a.data() as Map<String, dynamic>;
+                  var dataB = b.data() as Map<String, dynamic>;
+                  
+                  dynamic timeA = dataA['timestamp'] ?? dataA['createdAt'];
+                  dynamic timeB = dataB['timestamp'] ?? dataB['createdAt'];
+                  
+                  Timestamp tsA = (timeA is Timestamp) ? timeA : Timestamp.now();
+                  Timestamp tsB = (timeB is Timestamp) ? timeB : Timestamp.now();
+                  
+                  return tsB.compareTo(tsA);
+                });
+
                 if (docs.isEmpty) {
                   return Center(
                     child: Column(
@@ -354,12 +368,17 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                         String clientName = nameSnapshot.data ?? (rawClientName.isNotEmpty ? rawClientName : "Client");
 
                         String subtitleText;
+                        String uploadedBy = (data['uploadedBy'] ?? "").toString().trim();
+                        String uploadedByRole = (data['uploadedByRole'] ?? "").toString().trim();
+
                         if (type == 'Vakalatnama') {
                           subtitleText = isSigned
                               ? "Status: Signed by Client ($clientName)"
                               : "Status: Pending Client Signature";
                         } else {
-                          if (senderType == 'client' || senderType.isEmpty) {
+                          if (uploadedByRole == "Supporting Lawyer" && uploadedBy.isNotEmpty) {
+                            subtitleText = "From: $uploadedBy";
+                          } else if (senderType == 'client' || senderType.isEmpty) {
                             subtitleText = "From: $clientName";
                           } else {
                             subtitleText = "From: Lawyer";
@@ -376,6 +395,20 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
 
                         bool hasFile = targetUrl.isNotEmpty && !targetUrl.contains('dummy.pdf');
                         bool isDownloaded = (senderType == 'lawyer') ? true : (data['isDownloaded'] ?? false);
+
+                        String displayDate;
+                        if (data['timestamp'] != null && data['timestamp'] is Timestamp) {
+                          displayDate = (data['timestamp'] as Timestamp).toDate().toString().substring(0, 16);
+                        } else if (data['createdAt'] != null && data['createdAt'] is Timestamp) {
+                          displayDate = (data['createdAt'] as Timestamp).toDate().toString().substring(0, 16);
+                        } else {
+                          String existingDate = (data['date'] ?? "").toString().trim();
+                          if (existingDate.isEmpty || existingDate.toUpperCase() == "N/A") {
+                            displayDate = DateTime.now().toString().substring(0, 16);
+                          } else {
+                            displayDate = existingDate;
+                          }
+                        }
 
                         return Card(
                           elevation: 3,
@@ -419,7 +452,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                                     )
                                 ),
                                 Text(
-                                    "Date: ${data['date'] ?? (data['timestamp'] != null ? (data['timestamp'] as Timestamp).toDate().toString().split(' ')[0] : "N/A")}",
+                                    "Date: $displayDate",
                                     style: const TextStyle(fontSize: 11)
                                 ),
                               ],

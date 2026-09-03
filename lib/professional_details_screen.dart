@@ -17,8 +17,8 @@ class _ProfessionalDetailsScreenState extends State<ProfessionalDetailsScreen> {
   String? selectedOrg;
   final _descriptionController = TextEditingController();
   final List<String> disciplines = [
-    "Property Law", "Family Law", "Criminal Law",
-    "Tax Law", "Corporate Law", "Immigration Law"
+    "Property Law", "Family Law", "CyberCrime",
+    "Tax Law"
   ];
   List<String> selectedDisciplines = [];
   bool _isLoading = false;

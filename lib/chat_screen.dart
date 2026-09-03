@@ -26,6 +26,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
   String? _lawyerName;
   Map<String, dynamic>? _replyMessage;
+  bool _isCaseClosed = false;
 
   String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
 
@@ -54,6 +55,26 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _fetchLawyerName();
+    _checkCaseStatus();
+  }
+
+  void _checkCaseStatus() {
+    FirebaseFirestore.instance
+        .collection('suit_a_file_request')
+        .doc(widget.consultationId.trim())
+        .snapshots()
+        .listen((doc) {
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        if (data['status'] == 'closed') {
+          if (mounted) {
+            setState(() {
+              _isCaseClosed = true;
+            });
+          }
+        }
+      }
+    });
   }
 
   void _markMessagesAsRead(List<QueryDocumentSnapshot> docs) async {
@@ -100,6 +121,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _sendMessage() async {
+    if (_isCaseClosed) return;
     if (_messageController.text.trim().isEmpty || currentUserId == null) return;
 
     final String text = _messageController.text.trim();
@@ -261,6 +283,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       key: Key(doc.id),
                       direction: isDeletedForEveryone ? DismissDirection.none : DismissDirection.startToEnd,
                       confirmDismiss: (direction) async {
+                        if (_isCaseClosed) return false;
                         setState(() => _replyMessage = data);
                         return false;
                       },
@@ -270,7 +293,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         child: const Icon(Icons.reply, color: Colors.grey),
                       ),
                       child: GestureDetector(
-                        onLongPress: () => _showDeleteOptions(doc.id, isMe, isDeletedForEveryone),
+                        onLongPress: () => _isCaseClosed ? null : _showDeleteOptions(doc.id, isMe, isDeletedForEveryone),
                         child: Align(
                           alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
                           child: Column(
@@ -361,8 +384,18 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
           ),
-          if (_replyMessage != null) _buildReplyPreview(),
-          _buildInputArea(navyBlue),
+          if (_replyMessage != null && !_isCaseClosed) _buildReplyPreview(),
+          if (!_isCaseClosed) _buildInputArea(navyBlue)
+          else Container(
+            padding: const EdgeInsets.all(16),
+            color: Colors.white,
+            width: double.infinity,
+            child: const Text(
+              "This case has been closed. You cannot send new messages.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+            ),
+          ),
         ],
       ),
     );

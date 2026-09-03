@@ -328,7 +328,7 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
     }
   }
 
-  // MANUAL UPDATE: Clean fields without duplication
+  // MANUAL UPDATE: Saves ONLY in 'Hearings' collection and notifies client
   Future<void> updateHearing() async {
     if (_dateController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -362,10 +362,10 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
-      // 1. Save main document cleanly in Hearings collection
+      // 1. Save main document in Hearings collection
       await FirebaseFirestore.instance.collection('Hearings').doc(widget.caseId).set(hearingData, SetOptions(merge: true));
 
-      // 2. Save entry cleanly in history subcollection
+      // 2. Save entry in history subcollection
       await FirebaseFirestore.instance
           .collection('Hearings')
           .doc(widget.caseId)
@@ -379,9 +379,23 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
         'createdTimeStamp': FieldValue.serverTimestamp(),
       });
 
+      // 3. Send Notification to Client
+      if (_resolvedClientId != null && _resolvedClientId!.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('notifications').add({
+          'receiverId': _resolvedClientId,
+          'senderId': uid,
+          'title': 'New Manual Hearing Scheduled',
+          'body': 'Your hearing for case #${_caseNumberController.text.trim()} has been scheduled on ${_dateController.text} at ${_timeController.text}.',
+          'type': 'hearing_update',
+          'caseId': widget.caseId,
+          'isRead': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Hearing details updated successfully!'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Hearing details saved in Hearings and notification sent to client!'), backgroundColor: Colors.green),
         );
         Navigator.pop(context);
       }
@@ -392,7 +406,7 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
     }
   }
 
-  // Scraped Hearing Save Function Clean Version
+  // Scraped Hearing Save Function (Updates cases collection for automated scraping)
   Future<void> _saveScrapedHearingDetails() async {
     if (_dateController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -426,10 +440,10 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
-      // 1. Save main document cleanly in Hearings
+      // 1. Save main document in Hearings
       await FirebaseFirestore.instance.collection('Hearings').doc(widget.caseId).set(hearingData, SetOptions(merge: true));
 
-      // 2. Save entry cleanly in history subcollection
+      // 2. Save entry in history subcollection
       await FirebaseFirestore.instance
           .collection('Hearings')
           .doc(widget.caseId)
@@ -443,7 +457,7 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
         'createdTimeStamp': FieldValue.serverTimestamp(),
       });
 
-      // 3. Update cases collection for scraped workflow tracking cleanly
+      // 3. Update cases collection for scraped workflow tracking
       await FirebaseFirestore.instance.collection('cases').doc(widget.caseId).set({
         'nextHearingDate': _dateController.text,
         'hearingTime': _timeController.text,
