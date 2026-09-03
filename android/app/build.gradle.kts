@@ -7,8 +7,9 @@ plugins {
 
 android {
     namespace = "com.example.first_project"
-    compileSdk = 37
-    ndkVersion = flutter.ndkVersion
+    compileSdk = 36
+    
+    buildToolsVersion = "35.0.0"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -22,13 +23,16 @@ android {
     defaultConfig {
         applicationId = "com.example.first_project"
         minSdk = flutter.minSdkVersion
-        targetSdk = 35
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        debug {
             signingConfig = signingConfigs.getByName("debug")
         }
     }

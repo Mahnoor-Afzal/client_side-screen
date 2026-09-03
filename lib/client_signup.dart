@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'client_dashboard.dart';
-import 'login_screen.dart';
+import 'client_login_screen.dart';
 
 class ClientSignupScreen extends StatefulWidget {
   const ClientSignupScreen({super.key});
@@ -163,7 +163,13 @@ class _ClientSignupScreenState extends State<ClientSignupScreen> {
                   },
                   validator: (val) {
                     if (val == null || val.isEmpty) return "Enter password";
-                    if (val.length < 6) return "Min 6 characters required"; // 8 se kam kar ke 6 kar diya
+                    if (val.length < 8) return "Min 8 characters required";
+                    if (!RegExp(r'[0-9]').hasMatch(val)) {
+                      return "Password must contain at least one number";
+                    }
+                    if (!RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(val)) {
+                      return "Password must contain a special character";
+                    }
                     return null;
                   },
                 ),

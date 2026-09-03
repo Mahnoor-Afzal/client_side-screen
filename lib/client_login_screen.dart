@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'client_dashboard.dart';
 import 'client_signup.dart';
 
@@ -18,16 +19,43 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   bool _obscurePassword = true;
 
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 
     try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
+      UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
+
+      // Check if the user is blocked in either collection
+      DocumentSnapshot userDoc = await FirebaseFirestore.instance.collection('users').doc(userCredential.user!.uid).get();
+      
+      if (!userDoc.exists) {
+        userDoc = await FirebaseFirestore.instance.collection('verified_lawyers').doc(userCredential.user!.uid).get();
+      }
+
+      if (userDoc.exists) {
+        final data = userDoc.data() as Map<String, dynamic>;
+        bool isBlocked = data['isBlocked'] == true || data['status'] == 'Blocked' || data['status'] == 'blocked';
+        
+        if (isBlocked) {
+          String reason = data['blockReason'] ?? "Your account has been suspended by the administrator.";
+          await FirebaseAuth.instance.signOut();
+          if (!mounted) return;
+          _showBlockedDialog(reason);
+          return;
+        }
+      }
 
       if (!mounted) return;
       Navigator.pushReplacement(
@@ -35,13 +63,82 @@ class _LoginScreenState extends State<LoginScreen> {
         MaterialPageRoute(builder: (context) => const DashboardScreen()),
       );
     } on FirebaseAuthException catch (e) {
-      String message = e.message ?? "An error occurred during login.";
+      String message = "";
+      if (e.code == 'user-not-found') {
+        message = "No user found for that email.";
+      } else if (e.code == 'wrong-password') {
+        message = "Wrong password provided.";
+      } else if (e.code == 'invalid-credential') {
+        message = "Invalid email or password. Please try again.";
+      } else {
+        message = e.message ?? "An error occurred during login.";
+      }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _showBlockedDialog(String reason) {
+    showDialog(
+      context: context,
+      barrierDismissible: true, // Backup: user can click outside to close
+      builder: (BuildContext dialogContext) => AlertDialog(
+        backgroundColor: fieldNavy,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.block, color: Colors.redAccent),
+            SizedBox(width: 10),
+            Text("Account Blocked", style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Your account has been suspended by the admin.",
+              style: TextStyle(color: textGrey, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 15),
+            const Text("Reason:", style: TextStyle(color: accentGold, fontSize: 14)),
+            const SizedBox(height: 5),
+            Text(
+              reason,
+              style: const TextStyle(color: Colors.white70, fontStyle: FontStyle.italic),
+            ),
+          ],
+        ),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.of(dialogContext, rootNavigator: true).pop();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: accentGold,
+                  foregroundColor: backgroundNavy,
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: const Text(
+                  "OK", 
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   static const Color backgroundNavy = Color(0xFF0A0E1A);

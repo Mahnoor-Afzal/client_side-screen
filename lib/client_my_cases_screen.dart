@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'chat_screen.dart';
-import 'vakalatnama_screen.dart';
-import 'lawyer_profile_screen.dart';
+import 'client_chat_screen.dart';
+import 'client_lawyer_profile_screen.dart';
+import 'client_notification_helper.dart';
 
 class MyCasesScreen extends StatefulWidget {
   final String? filterStatus;
@@ -50,9 +50,66 @@ class _MyCasesScreenState extends State<MyCasesScreen> {
   Future<void> _markAsResolved(String docId, String collectionName) async {
     try {
       await FirebaseFirestore.instance.collection(collectionName).doc(docId).update({
-        'status': 'Completed',
+        'status': 'closed', // Changed from 'Completed' to 'closed' to match your database screenshot
         'completedAt': FieldValue.serverTimestamp(),
+        'needsRating': true,
+        'isRated': false,
       });
+
+      // Send notification to client
+      try {
+        var caseDoc = await FirebaseFirestore.instance.collection(collectionName).doc(docId).get();
+        if (caseDoc.exists) {
+          var caseData = caseDoc.data() as Map<String, dynamic>;
+          String clientId = caseData['clientId'];
+          String lawyerName = caseData['lawyerName'] ?? 'Your lawyer';
+
+          await FirebaseFirestore.instance.collection('notifications').add({
+            'userId': clientId,
+            'title': 'Case Closed',
+            'body': '$lawyerName has closed your case. Please rate the service.',
+            'type': 'case_completed',
+            'createdAt': FieldValue.serverTimestamp(),
+            'isRead': false,
+            'requestId': docId,
+            'collectionName': collectionName,
+            'lawyerId': caseData['lawyerId'],
+            'senderId': caseData['lawyerId'],
+            'senderName': lawyerName,
+          });
+
+          // Update Hearings collection as well
+          await FirebaseFirestore.instance.collection('Hearings').doc(docId).set({
+            'status': 'closed',
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
+          // Send Push Notification
+          DocumentSnapshot clientDoc = await FirebaseFirestore.instance.collection('users').doc(clientId).get();
+          if (clientDoc.exists) {
+            String? token = (clientDoc.data() as Map<String, dynamic>?)?['fcmToken'];
+            if (token != null && token.isNotEmpty) {
+              await NotificationHelper.sendGlobalPushNotification(
+                token: token,
+                title: "Case Completed",
+                body: "$lawyerName has marked your case as completed. Please rate the service.",
+                data: {
+                  'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+                  'type': 'case_completed',
+                  'requestId': docId,
+                  'collectionName': collectionName,
+                  'lawyerId': caseData['lawyerId'],
+                  'senderId': caseData['lawyerId'],
+                  'senderName': lawyerName,
+                },
+              );
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint("Error sending completion notification: $e");
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text("Case marked as Completed!"),
@@ -110,6 +167,7 @@ class _MyCasesScreenState extends State<MyCasesScreen> {
               if (dateController.text.isNotEmpty) {
                 await FirebaseFirestore.instance.collection(collectionName).doc(docId).update({
                   'hearingDate': dateController.text,
+                  'hearingDescription': detailsController.text,
                   'hearingDetails': detailsController.text,
                 });
 
@@ -118,15 +176,96 @@ class _MyCasesScreenState extends State<MyCasesScreen> {
                   var caseDoc = await FirebaseFirestore.instance.collection(collectionName).doc(docId).get();
                   if (caseDoc.exists) {
                     var caseData = caseDoc.data() as Map<String, dynamic>;
+                    String clientId = caseData['clientId'];
+
                     await FirebaseFirestore.instance.collection('notifications').add({
-                      'userId': caseData['clientId'],
+                      'userId': clientId,
                       'title': 'Hearing Update',
                       'body': 'Your lawyer has set a new hearing date: ${dateController.text}',
                       'type': 'hearing_update',
                       'createdAt': FieldValue.serverTimestamp(),
                       'isRead': false,
                       'requestId': docId,
+                      'senderId': caseData['lawyerId'],
+                      'senderName': caseData['lawyerName'] ?? 'Your Lawyer',
+                      'hearing_date': dateController.text,
                     });
+
+                    // Update Hearings collection immediately to maintain history
+                    DocumentReference hearingRef = FirebaseFirestore.instance.collection('Hearings').doc(docId);
+                    await FirebaseFirestore.instance.runTransaction((transaction) async {
+                      DocumentSnapshot hSnap = await transaction.get(hearingRef);
+                      Map<String, dynamic> updateData = {
+                        'clientId': clientId,
+                        'case_type': caseData['type'] ?? (collectionName == 'consultation_request' ? 'Consultation' : 'File a Suit'),
+                        'hearing_date': dateController.text,
+                        'status': 'Upcoming',
+                        'hearingDescription': detailsController.text,
+                        'details': detailsController.text,
+                        'lawyerId': caseData['lawyerId'],
+                        'lawyerName': caseData['lawyerName'],
+                        'updatedAt': FieldValue.serverTimestamp(),
+                      };
+
+                      if (hSnap.exists) {
+                        Map<String, dynamic> existing = hSnap.data() as Map<String, dynamic>;
+                        List<dynamic> history = List.from(existing['previous_hearings'] ?? []);
+                        var currentHDate = existing['hearing_date'];
+                        
+                        if (currentHDate != null && currentHDate.toString() != dateController.text) {
+                          // Check if this date already exists in history to avoid duplicates
+                          bool alreadyInHistory = history.any((h) => 
+                            (h['hearing_date'] ?? h['date']).toString() == currentHDate.toString());
+
+                          if (!alreadyInHistory) {
+                            history.add({
+                              'hearing_date': currentHDate,
+                              'status': existing['status'] ?? 'Completed',
+                              'court_location': existing['court_location'] ?? 'N/A',
+                              'date': currentHDate,
+                              'details': existing['details'] ?? '',
+                              'hearingDescription': existing['hearingDescription'] ?? existing['details'] ?? '',
+                              'archivedAt': FieldValue.serverTimestamp(),
+                            });
+                          }
+                        }
+                        updateData['previous_hearings'] = history;
+                        
+                        // Also add to History subcollection for extra durability
+                        transaction.set(
+                          hearingRef.collection('History').doc(),
+                          {
+                            'hearing_date': currentHDate ?? dateController.text,
+                            'status': existing['status'] ?? 'Completed',
+                            'court_location': existing['court_location'] ?? 'N/A',
+                            'details': existing['details'] ?? '',
+                            'updatedAt': FieldValue.serverTimestamp(),
+                          }
+                        );
+                      }
+                      transaction.set(hearingRef, updateData, SetOptions(merge: true));
+                    });
+
+                    // Send Push Notification
+                    DocumentSnapshot clientDoc = await FirebaseFirestore.instance.collection('users').doc(clientId).get();
+                    if (clientDoc.exists) {
+                      String? token = (clientDoc.data() as Map<String, dynamic>?)?['fcmToken'];
+                      if (token != null && token.isNotEmpty) {
+                        await NotificationHelper.sendGlobalPushNotification(
+                          token: token,
+                          title: "Hearing Update",
+                          body: "Your lawyer has set a new hearing date: ${dateController.text}",
+                          data: {
+                            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+                            'type': 'hearing_update',
+                            'requestId': docId,
+                            'senderId': caseData['lawyerId'],
+                            'senderName': caseData['lawyerName'] ?? 'Your Lawyer',
+                            'hearing_date': dateController.text,
+                          },
+                        );
+                      }
+                    }
                   }
                 } catch (e) {
                   debugPrint("Error sending hearing notification: $e");
@@ -157,10 +296,11 @@ class _MyCasesScreenState extends State<MyCasesScreen> {
     String idField = _userRole == 'lawyer' ? 'lawyerId' : 'clientId';
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
         backgroundColor: navyBlue,
-        title: Text(title, style: const TextStyle(color: gold)),
+        elevation: 0,
+        title: Text(title, style: const TextStyle(color: gold, fontWeight: FontWeight.bold)),
         iconTheme: const IconThemeData(color: gold),
       ),
       body: StreamBuilder<QuerySnapshot>(
@@ -222,21 +362,33 @@ class _MyCasesScreenState extends State<MyCasesScreen> {
                   switch (status.toLowerCase()) {
                     case 'active': statusColor = Colors.green; break;
                     case 'accepted': statusColor = Colors.blue; break;
-                    case 'completed': statusColor = Colors.teal; break;
+                    case 'completed':
+                    case 'closed': statusColor = Colors.teal; break;
                     case 'rejected': statusColor = Colors.red; break;
                     default: statusColor = Colors.orange;
                   }
 
-                  bool canChat = ['accepted', 'active', 'in progress', 'completed'].contains(status.toLowerCase());
-                  bool needsVakalatnama = status.toLowerCase() == 'accepted' && type == 'File a Suit' && _userRole == 'client';
-                  bool isLawyerActive = (status.toLowerCase() == 'active' || status.toLowerCase() == 'accepted') && _userRole == 'lawyer';
-                  bool canResolve = (status.toLowerCase() == 'active' || status.toLowerCase() == 'accepted') && _userRole == 'lawyer';
+                  bool canChat = ['accepted', 'active', 'in progress', 'completed', 'closed'].contains(status.toLowerCase());
+                  bool isLawyerActive = (['active', 'accepted', 'in progress'].contains(status.toLowerCase())) && _userRole == 'lawyer';
+                  bool canResolve = (['active', 'accepted', 'in progress'].contains(status.toLowerCase())) && _userRole == 'lawyer';
+                  bool canRate = _userRole == 'client' && 
+                                (status.toLowerCase() == 'completed' || status.toLowerCase() == 'closed') && 
+                                (caseData['isRated'] == false || caseData['isRated'] == null);
                   Map<String, dynamic>? aiAnalysis = caseData['aiAnalysis'];
 
-                  return Card(
-                    elevation: 3,
-                    margin: const EdgeInsets.only(bottom: 15),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.06),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
                     child: Column(
                       children: [
                         ListTile(
@@ -255,7 +407,7 @@ class _MyCasesScreenState extends State<MyCasesScreen> {
                               const SizedBox(height: 5),
                               Text(_userRole == 'lawyer' 
                                 ? "Client: ${caseData['clientName'] ?? 'Unknown'}"
-                                : "Lawyer: ${caseData['lawyerName'] ?? 'Unknown'}"),
+                                : "Lawyer: ${caseData['lawyerName'] ?? 'Searching for Expert'}"),
                               const SizedBox(height: 8),
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -398,6 +550,23 @@ class _MyCasesScreenState extends State<MyCasesScreen> {
                               ),
                             ),
                           ),
+                        if (canRate)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(15, 0, 15, 15),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: () => _showRatingDialog(context, caseData['lawyerId'], doc.id, collectionName),
+                                icon: const Icon(Icons.star_half_rounded, size: 18),
+                                label: const Text("Rate Lawyer"),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: gold,
+                                  foregroundColor: navyBlue,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   );
@@ -408,6 +577,93 @@ class _MyCasesScreenState extends State<MyCasesScreen> {
         },
       ),
     );
+  }
+
+  void _showRatingDialog(BuildContext context, String? lawyerId, String? requestId, String? collectionName) {
+    if (lawyerId == null) return;
+    double selectedRating = 5.0;
+    const Color navyBlue = Color(0xFF001F3F);
+    const Color gold = Color(0xFFD4AF37);
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text("Rate your Lawyer", style: TextStyle(color: navyBlue, fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text("How was your experience?"),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(5, (index) {
+                  return IconButton(
+                    icon: Icon(
+                      index < selectedRating ? Icons.star : Icons.star_border,
+                      color: Colors.amber,
+                      size: 32,
+                    ),
+                    onPressed: () => setDialogState(() => selectedRating = index + 1.0),
+                  );
+                }),
+              ),
+              Text("$selectedRating / 5.0", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("LATER")),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: navyBlue, foregroundColor: gold),
+              onPressed: () async {
+                await _submitRating(lawyerId, selectedRating, requestId, collectionName);
+                if (!context.mounted) return;
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Thank you for your feedback!")));
+              },
+              child: const Text("SUBMIT"),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submitRating(String lawyerId, double rating, String? requestId, String? collectionName) async {
+    try {
+      DocumentReference lawyerRef = FirebaseFirestore.instance.collection('verified_lawyers').doc(lawyerId);
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        DocumentSnapshot snapshot = await transaction.get(lawyerRef);
+        if (!snapshot.exists) return;
+        Map<String, dynamic> data = snapshot.data() as Map<String, dynamic>;
+        double currentRating = double.tryParse((data['rating'] ?? '0').toString()) ?? 0.0;
+        int reviewCount = int.tryParse((data['reviewCount'] ?? '0').toString()) ?? 0;
+        double newRating = ((currentRating * reviewCount) + rating) / (reviewCount + 1);
+        transaction.update(lawyerRef, {'rating': newRating, 'reviewCount': reviewCount + 1});
+      });
+
+      if (requestId != null && collectionName != null) {
+        await FirebaseFirestore.instance.collection(collectionName).doc(requestId).update({
+          'needsRating': false,
+          'isRated': true,
+          'clientRating': rating,
+        });
+
+        // Mark notification as read after rating
+        final String? uid = FirebaseAuth.instance.currentUser?.uid;
+        var notifs = await FirebaseFirestore.instance.collection('notifications')
+            .where('requestId', isEqualTo: requestId)
+            .where('type', isEqualTo: 'case_completed')
+            .where('userId', isEqualTo: uid)
+            .get();
+        for (var doc in notifs.docs) {
+          await doc.reference.update({'isRead': true});
+        }
+      }
+    } catch (e) {
+      debugPrint("Rating Error: $e");
+    }
   }
 
   void _showStatusNotice(BuildContext context, String status) {

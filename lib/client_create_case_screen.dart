@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'lawyer_list_screen.dart';
+import 'client_lawyer_list_screen.dart';
+import 'client_dashboard.dart';
+import 'client_notification_helper.dart';
 
 class CreateCaseScreen extends StatefulWidget {
-  const CreateCaseScreen({super.key});
+  final String? lawyerId;
+  final String? lawyerName;
+  const CreateCaseScreen({super.key, this.lawyerId, this.lawyerName});
 
   @override
   State<CreateCaseScreen> createState() => _CreateCaseScreenState();
@@ -36,89 +38,92 @@ class _CreateCaseScreenState extends State<CreateCaseScreen> {
   static const Color lightGrey = Color(0xFFF5F5F5);
 
   bool _isLoading = false;
-  bool _isSubmitted = false;
 
-  // --- UPDATED NOTIFICATION FUNCTION ---
-  Future<void> _notifyAllLawyers(String clientName, String caseType) async {
-    // Aapki di hui Server Key yahan add kar di hai
-    const String serverKey = 'AIzaSyDQP_4C2i-KvTJs7EeM_KyxShTP8NXTmqA';
-
-    try {
-      await http.post(
-        Uri.parse('https://fcm.googleapis.com/fcm/send'),
-        headers: <String, String>{
-          'Content-Type': 'application/json',
-          'Authorization': 'key=$serverKey',
-        },
-        body: jsonEncode({
-          'notification': {
-            'title': 'New Legal Case Posted!',
-            'body': '$clientName has posted a new $caseType case.',
-            'sound': 'default',
-            'android_channel_id': 'high_importance_channel',
-          },
-          'priority': 'high',
-          'to': '/topics/all_lawyers', // Topic based notification
-        }),
-      );
-      debugPrint("Broadcasting notification to all lawyers...");
-    } catch (e) {
-      debugPrint("Notification failed: $e");
-    }
-  }
+  bool _showSuccess = false;
 
   Future<void> _submitCase() async {
     if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-      });
+      final caseData = {
+        'caseCategory': _selectedCaseType,
+        'subCategory': _selectedCategory,
+        'state': _selectedState,
+        'description': _descriptionController.text.trim(),
+        'type': 'File a Suit',
+      };
 
-      try {
-        User? user = FirebaseAuth.instance.currentUser;
-        String clientName = "A Client";
+      if (widget.lawyerId != null) {
+        // If we already have a lawyer (e.g., coming from profile), send it immediately
+        setState(() => _isLoading = true);
+        try {
+          User? user = FirebaseAuth.instance.currentUser;
+          String clientName = "A Client";
 
-        if (user != null) {
-          DocumentSnapshot userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-          if (userDoc.exists) {
-            clientName = userDoc['name'] ?? "A Client";
+          if (user != null) {
+            DocumentSnapshot userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+            if (userDoc.exists) {
+              clientName = userDoc['name'] ?? "A Client";
+            }
           }
-        }
 
-        // 1. Data Firestore mein save karna
-        await FirebaseFirestore.instance.collection('suit_a_file_request').add({
-          'clientName': clientName,
-          'type': 'File a Suit',
-          'caseCategory': _selectedCaseType,
-          'subCategory': _selectedCategory,
-          'state': _selectedState,
-          'description': _descriptionController.text.trim(),
-          'status': 'Pending',
-          'createdAt': FieldValue.serverTimestamp(),
-          'clientId': user?.uid,
-          'lawyerId': null,
-          'lawyerName': 'TBD',
+          DocumentReference docRef = await FirebaseFirestore.instance.collection('suit_a_file_request').add({
+            ...caseData,
+            'clientName': clientName,
+            'status': 'Pending',
+            'createdAt': FieldValue.serverTimestamp(),
+            'clientId': user?.uid,
+            'lawyerId': widget.lawyerId,
+            'lawyerName': widget.lawyerName,
+            'isDirectRequest': true,
+          });
+
+          await FirebaseFirestore.instance.collection('notifications').add({
+            'userId': widget.lawyerId,
+            'title': 'New Direct Case Request',
+            'body': '$clientName sent you a $_selectedCaseType request.',
+            'createdAt': FieldValue.serverTimestamp(),
+            'requestId': docRef.id,
+            'type': 'request_received',
+            'isRead': false,
+          });
+
+          // Send Push Notification
+          DocumentSnapshot lawyerDoc = await FirebaseFirestore.instance.collection('verified_lawyers').doc(widget.lawyerId!).get();
+          String? fcmToken = (lawyerDoc.data() as Map<String, dynamic>?)?['fcmToken'];
+          if (fcmToken != null && fcmToken.isNotEmpty) {
+            await NotificationHelper.sendGlobalPushNotification(
+              token: fcmToken,
+              title: 'Direct Case Request!',
+              body: '$clientName has sent you a $_selectedCaseType case.',
+              data: {
+                'type': 'request_received',
+                'requestId': docRef.id,
+                'isDirectRequest': 'true',
+                'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+              },
+            );
+          }
+
+          if (mounted) {
+            setState(() {
+              _showSuccess = true;
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text("Case request sent to ${widget.lawyerName}"), backgroundColor: Colors.green),
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed: $e")));
+          }
+        } finally {
+          if (mounted) setState(() => _isLoading = false);
+        }
+      } else {
+        // No lawyer selected yet. Do NOT save to Firestore yet.
+        // Just show the success view and pass the data to LawyerListScreen.
+        setState(() {
+          _showSuccess = true;
         });
-
-        // 2. Notification bhejna
-        await _notifyAllLawyers(clientName, _selectedCaseType ?? "Legal");
-
-        if (mounted) {
-          setState(() {
-            _isSubmitted = true;
-          });
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Failed to submit case: $e")),
-          );
-        }
-      } finally {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
-        }
       }
     }
   }
@@ -139,16 +144,26 @@ class _CreateCaseScreenState extends State<CreateCaseScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
-        title: const Text(
-          "CREATE NEW CASE",
-          style: TextStyle(color: navyBlue, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.5),
+        title: Text(
+          _showSuccess ? "CASE SUBMITTED" : "CREATE NEW CASE",
+          style: const TextStyle(color: navyBlue, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.5),
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: navyBlue),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            if (_showSuccess) {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (context) => const DashboardScreen()),
+                (route) => false,
+              );
+            } else {
+              Navigator.pop(context);
+            }
+          },
         ),
       ),
-      body: _isSubmitted ? _buildSuccessView() : _buildFormView(),
+      body: _showSuccess ? _buildSuccessView() : _buildFormView(),
     );
   }
 
@@ -255,7 +270,21 @@ class _CreateCaseScreenState extends State<CreateCaseScreen> {
               height: 55,
               child: ElevatedButton.icon(
                 onPressed: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const LawyerListScreen()));
+                  Navigator.push(
+                    context, 
+                    MaterialPageRoute(
+                      builder: (context) => LawyerListScreen(
+                        stateFilter: _selectedState,
+                        specializationFilter: _selectedCaseType,
+                        pendingCaseData: {
+                          'caseCategory': _selectedCaseType,
+                          'subCategory': _selectedCategory,
+                          'state': _selectedState,
+                          'description': _descriptionController.text.trim(),
+                        },
+                      )
+                    )
+                  );
                 },
                 icon: const Icon(Icons.search, color: Colors.white),
                 label: const Text("SEARCH LAWYER", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
@@ -265,7 +294,16 @@ class _CreateCaseScreenState extends State<CreateCaseScreen> {
                 ),
               ),
             ),
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Go Back to Dashboard", style: TextStyle(color: navyBlue)))
+            TextButton(
+              onPressed: () {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (context) => const DashboardScreen()),
+                  (route) => false,
+                );
+              },
+              child: const Text("Go Back to Dashboard", style: TextStyle(color: navyBlue)),
+            )
           ],
         ),
       ),
@@ -281,7 +319,7 @@ class _CreateCaseScreenState extends State<CreateCaseScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 15),
       decoration: BoxDecoration(color: lightGrey, borderRadius: BorderRadius.circular(15)),
       child: DropdownButtonFormField<String>(
-        value: value,
+        initialValue: value,
         hint: Text(hint, style: const TextStyle(color: Colors.black26)),
         dropdownColor: Colors.white,
         icon: const Icon(Icons.keyboard_arrow_down, color: navyBlue),
