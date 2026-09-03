@@ -1,8 +1,9 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'lawyer_profile_screen.dart';
+import 'client_lawyer_profile_screen.dart';
 
 class MyLawyersScreen extends StatelessWidget {
   const MyLawyersScreen({super.key});
@@ -131,14 +132,57 @@ class MyLawyersScreen extends StatelessWidget {
                       
                       String name = _safeString(lawyer['fullName'] ?? lawyer['name'] ?? lawyer['organizationName'], defaultValue: "Advocate");
                       String spec = _safeString(lawyer['specialization'], defaultValue: "Legal Expert");
-                      String? profilePic = lawyer['profilePicture'];
+                      
+                      // Robust image detection logic matching LawyerListScreen
+                      dynamic profilePicData = lawyer['profilePicture'] ?? 
+                                               lawyer['profile_picture'] ??
+                                               lawyer['profileImage'] ??
+                                               lawyer['profile_image'] ??
+                                               lawyer['profilePic'] ??
+                                               lawyer['profile_pic'] ??
+                                               lawyer['profileImageUrl'] ??
+                                               lawyer['imageUrl'] ?? 
+                                               lawyer['image'] ?? 
+                                               lawyer['photoUrl'] ??
+                                               lawyer['avatar'];
+                      
+                      ImageProvider? imageProvider;
+                      if (profilePicData != null) {
+                        if (profilePicData is String && profilePicData.trim().isNotEmpty) {
+                          String imgStr = profilePicData.trim();
+                          if (imgStr.startsWith('http')) {
+                            imageProvider = NetworkImage(imgStr);
+                          } else {
+                            try {
+                              String cleanBase64 = imgStr.contains(',') ? imgStr.split(',').last : imgStr;
+                              cleanBase64 = cleanBase64.replaceAll(RegExp(r'\s+'), '');
+                              int padLength = cleanBase64.length % 4;
+                              if (padLength > 0) cleanBase64 += '=' * (4 - padLength);
+                              imageProvider = MemoryImage(base64Decode(cleanBase64));
+                            } catch (e) {
+                              debugPrint("Failed to decode image: $e");
+                            }
+                          }
+                        } else if (profilePicData is Uint8List) {
+                          imageProvider = MemoryImage(profilePicData);
+                        }
+                      }
 
-                      return Card(
-                        elevation: 2,
-                        margin: const EdgeInsets.only(bottom: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.06),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
                         child: InkWell(
-                          borderRadius: BorderRadius.circular(15),
+                          borderRadius: BorderRadius.circular(20),
                           onTap: () {
                             Navigator.push(
                               context,
@@ -148,16 +192,14 @@ class MyLawyersScreen extends StatelessWidget {
                             );
                           },
                           child: Padding(
-                            padding: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.all(16),
                             child: Row(
                               children: [
                                 CircleAvatar(
                                   radius: 30,
                                   backgroundColor: navyBlue.withValues(alpha: 0.05),
-                                  backgroundImage: (profilePic != null && profilePic.isNotEmpty) 
-                                      ? MemoryImage(base64Decode(profilePic)) 
-                                      : null,
-                                  child: (profilePic == null || profilePic.isEmpty) 
+                                  backgroundImage: imageProvider,
+                                  child: imageProvider == null 
                                       ? const Icon(Icons.person, color: navyBlue, size: 30) 
                                       : null,
                                 ),

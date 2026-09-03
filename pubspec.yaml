@@ -43,6 +43,14 @@ dependencies:
   intl: ^0.19.0
   signature: ^5.5.0
   file_picker: ^8.1.2
+  flutter_local_notifications: ^17.0.0
+  rxdart: ^0.27.7
+  url_launcher: ^6.3.0
+  cloudinary_public: ^0.23.1
+  flutter_image_compress: ^2.3.0
+  path_provider: ^2.1.2
+  pdf: ^3.10.7
+  printing: ^5.11.0
 
 
 
@@ -97,5 +105,4 @@ flutter:
   #       - asset: fonts/TrajanPro_Bold.ttf
   #         weight: 700
   #
-  # For details regarding fonts from package dependencies,
-  # see https://flutter.dev/to/font-from-package
+  # For details/packages see instructions...

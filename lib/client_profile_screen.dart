@@ -1,10 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
-import 'client_signup.dart';
+import 'client_login_screen.dart';
+import 'client_signature_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -26,6 +26,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoading = true;
   bool _isSaving = false;
   String? _base64Image; // To store image as string
+  String? _userRole;
+  String? _digitalSignatureUrl;
+  bool _hasDigitalSignature = false;
 
   @override
   void initState() {
@@ -37,15 +40,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       User? user = _auth.currentUser;
       if (user != null) {
+        // Check 'users' collection first
         DocumentSnapshot doc = await _firestore.collection('users').doc(user.uid).get();
+        
+        if (!doc.exists) {
+          // If not found in 'users', check 'verified_lawyers'
+          doc = await _firestore.collection('verified_lawyers').doc(user.uid).get();
+        }
+
         if (doc.exists) {
           Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
           setState(() {
-            _nameController.text = data['name'] ?? '';
+            // Handle both 'name' (clients) and 'fullName' (lawyers)
+            _nameController.text = data['name'] ?? data['fullName'] ?? '';
             _phoneController.text = data['phone'] ?? '';
             _idController.text = data['idNumber'] ?? '';
             _locationController.text = data['location'] ?? '';
-            _base64Image = data['profilePicture']; // Load string image
+            _base64Image = data['profilePicture'];
+            _userRole = data['role'] ?? (doc.reference.parent.id == 'verified_lawyers' ? 'lawyer' : 'client');
+            _digitalSignatureUrl = data['digitalSignatureUrl'];
+            _hasDigitalSignature = data['hasDigitalSignature'] ?? false;
           });
         }
       }
@@ -75,7 +89,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
 
     if (pickedFile != null) {
-      final bytes = await File(pickedFile.path).readAsBytes();
+      // Use readAsBytes() directly from XFile for cross-platform compatibility (Web, Android, iOS)
+      final bytes = await pickedFile.readAsBytes();
       setState(() {
         _base64Image = base64Encode(bytes); // Image ko text (string) mein badal diya
       });
@@ -94,13 +109,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       User? user = _auth.currentUser;
       if (user != null) {
-        await _firestore.collection('users').doc(user.uid).update({
-          'name': _nameController.text.trim(),
+        // Determine which collection to update
+        String collection = 'users';
+        DocumentSnapshot userDoc = await _firestore.collection('users').doc(user.uid).get();
+        if (!userDoc.exists) {
+          DocumentSnapshot lawyerDoc = await _firestore.collection('verified_lawyers').doc(user.uid).get();
+          if (lawyerDoc.exists) {
+            collection = 'verified_lawyers';
+          }
+        }
+
+        Map<String, dynamic> updateData = {
           'phone': _phoneController.text.trim(),
           'idNumber': _idController.text.trim(),
           'location': _locationController.text.trim(),
           'profilePicture': _base64Image, // Save image as string directly in Firestore
-        });
+        };
+
+        // Handle different name field names
+        if (collection == 'verified_lawyers') {
+          updateData['fullName'] = _nameController.text.trim();
+        } else {
+          updateData['name'] = _nameController.text.trim();
+        }
+
+        await _firestore.collection(collection).doc(user.uid).set(updateData, SetOptions(merge: true));
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -229,6 +262,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       validator: (val) => val!.isEmpty ? "Enter location" : null,
                     ),
 
+                    if (_userRole == 'lawyer') ...[
+                      const SizedBox(height: 30),
+                      _buildSignatureSection(),
+                    ],
+
                     const SizedBox(height: 50),
 
                     // --- Action Buttons ---
@@ -254,7 +292,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         await FirebaseAuth.instance.signOut();
                         if (!context.mounted) return;
                         Navigator.of(context).pushAndRemoveUntil(
-                          MaterialPageRoute(builder: (context) => const ClientSignupScreen()),
+                          MaterialPageRoute(builder: (context) => const LoginScreen()),
                           (route) => false,
                         );
                       },
@@ -265,6 +303,85 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
             ),
+    );
+  }
+
+  Widget _buildSignatureSection() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cardNavy,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: accentGold.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.history_edu, color: accentGold),
+              SizedBox(width: 10),
+              Text(
+                "DIGITAL SIGNATURE",
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+              ),
+            ],
+          ),
+          const SizedBox(height: 15),
+          const Text(
+            "Set up your digital signature to automatically include it in Vakalatnama documents.",
+            style: TextStyle(color: textGrey, fontSize: 12),
+          ),
+          const SizedBox(height: 20),
+          if (_hasDigitalSignature && _digitalSignatureUrl != null)
+            Column(
+              children: [
+                Container(
+                  height: 100,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Image.network(
+                    _digitalSignatureUrl!,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) => const Center(child: Icon(Icons.error, color: Colors.red)),
+                  ),
+                ),
+                const SizedBox(height: 15),
+              ],
+            ),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SignatureScreen(
+                      title: "Setup Profile Signature",
+                      isProfileSetup: true,
+                    ),
+                  ),
+                );
+                if (result == true) {
+                  _loadUserData();
+                }
+              },
+              icon: Icon(_hasDigitalSignature ? Icons.edit : Icons.add, color: accentGold),
+              label: Text(
+                _hasDigitalSignature ? "UPDATE SIGNATURE" : "CREATE SIGNATURE",
+                style: const TextStyle(color: accentGold),
+              ),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: accentGold),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
