@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -6,27 +5,31 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'dart:async';
+
 import 'firebase_options.dart';
 import 'client_login_screen.dart';
 import 'client_dashboard.dart';
+import 'splash_screen.dart';
+import 'lawyer_login_screen.dart';
+import 'Lawyer_dashboard.dart';
+import 'signup_screen.dart';
+import 'login_selection_screen.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
 const AndroidNotificationChannel channel = AndroidNotificationChannel(
-  'high_importance_channel', // id
-  'High Importance Notifications', // title
-  description: 'This channel is used for important notifications.', // description
+  'high_importance_channel',
+  'High Importance Notifications',
+  description: 'This channel is used for important notifications.',
   importance: Importance.max,
 );
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  
-  // Background mein notification manually show karne ki zaroorat nahi agar payload mein 'notification' object hai, 
-  // lekin data-only messages ke liye ye zaroori hai.
   if (message.data.isNotEmpty && message.notification == null) {
-     // Handle data message
+     // Handle data message if needed
   }
 }
 
@@ -39,7 +42,7 @@ void main() async {
     // Messaging setup
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    // Create Channel
+    // Create Channel for local notifications
     await flutterLocalNotificationsPlugin
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(channel);
@@ -77,7 +80,7 @@ void main() async {
       },
     );
 
-    // Persistence Settings
+    // Firestore Persistence Settings
     FirebaseFirestore.instance.settings = const Settings(
       persistenceEnabled: true,
       cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
@@ -92,57 +95,11 @@ void main() async {
 
 class LegalAssistantApp extends StatelessWidget {
   const LegalAssistantApp({super.key});
-=======
-import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
-import 'dart:async';
-
-import 'splash_screen.dart';
-import 'lawyer_login_screen.dart';
-import 'Lawyer_dashboard.dart';
-import 'signup_screen.dart';
-import 'login_selection_screen.dart';
-
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  if (kIsWeb) {
-    await Firebase.initializeApp(
-      options: const FirebaseOptions(
-        apiKey: "AIzaSyCjcM8IdGw327-i7b96mKvRUKuXBMEM9bU",
-        authDomain: "smart-legal-assistant-app.firebaseapp.com",
-        projectId: "smart-legal-assistant-app",
-        storageBucket: "smart-legal-assistant-app.firebasestorage.app",
-        messagingSenderId: "636284975962",
-        appId: "1:636284975962:web:047b2a453ebd18d7c75163",
-        measurementId: "G-38HTMVEZ14",
-      ),
-    );
-  } else {
-    await Firebase.initializeApp();
-  }
-
-  // Firestore Offline Persistence Setting
-  FirebaseFirestore.instance.settings = const Settings(
-    persistenceEnabled: true,
-    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
-  );
-
-  runApp(const MyApp());
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
->>>>>>> origin/lawyer-side-branch
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-<<<<<<< HEAD
       title: 'Smart Legal Assistant',
       theme: ThemeData(
         primaryColor: const Color(0xFF001F3F),
@@ -153,54 +110,14 @@ class MyApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      // Auth check with error handling
-      home: StreamBuilder<User?>(
-        stream: FirebaseAuth.instance.authStateChanges(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Scaffold(
-              backgroundColor: Colors.white,
-              body: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(color: Color(0xFF001F3F)),
-                    SizedBox(height: 10),
-                    Text("Loading Security...", style: TextStyle(color: Color(0xFF001F3F))),
-                  ],
-                ),
-              ),
-            );
-          }
-          
-          if (snapshot.hasError) {
-            return Scaffold(
-              body: Center(child: Text("Connection Error: ${snapshot.error}")),
-            );
-          }
-
-          if (snapshot.hasData && snapshot.data != null) {
-            return const DashboardScreen();
-          }
-
-          return const LoginScreen();
-        },
-      ),
-    );
-  }
-}
-=======
-      title: 'Smart Legal Assistance',
-      theme: ThemeData(
-        primaryColor: const Color(0xFF0D47A1),
-        useMaterial3: true,
-      ),
       home: const AuthWrapper(),
       routes: {
         '/login_selection': (context) => const LoginSelectionScreen(),
-        '/login': (context) => const LawyerLoginScreen(),
-        '/signup': (context) => const SignUpScreen(),
-        '/dashboard': (context) => const LawyerDashboard(),
+        '/client_login': (context) => const LoginScreen(),
+        '/lawyer_login': (context) => const LawyerLoginScreen(),
+        '/lawyer_signup': (context) => const SignUpScreen(),
+        '/client_dashboard': (context) => const DashboardScreen(),
+        '/lawyer_dashboard': (context) => const LawyerDashboard(),
       },
     );
   }
@@ -227,27 +144,64 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
   @override
   Widget build(BuildContext context) {
-    // Jab tak 3 second poore nahi hote, Splash Screen dikhao
+    // Show splash screen until timer finishes
     if (!_timerDone) return const FinalSplashScreen();
 
-    // 3 seconds baad Auth State check karein
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.active) {
           final user = snapshot.data;
-          if (user != null) {
-            // Lawyer logged in hai, seedha Dashboard
-            return const LawyerDashboard();
-          } else {
-            // Logged in nahi hai, Role Selection dikhao
+          if (user == null) {
             return const LoginSelectionScreen();
           }
+          
+          // Determine user role and navigate to appropriate dashboard
+          return FutureBuilder<DocumentSnapshot>(
+            future: FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
+            builder: (context, clientSnapshot) {
+              if (clientSnapshot.connectionState == ConnectionState.waiting) {
+                return const FinalSplashScreen();
+              }
+              
+              if (clientSnapshot.hasData && clientSnapshot.data!.exists) {
+                return const DashboardScreen();
+              }
+              
+              // If not a client, check if it's a lawyer
+              return FutureBuilder<DocumentSnapshot>(
+                future: FirebaseFirestore.instance.collection('verified_lawyers').doc(user.uid).get(),
+                builder: (context, lawyerSnapshot) {
+                  if (lawyerSnapshot.connectionState == ConnectionState.waiting) {
+                    return const FinalSplashScreen();
+                  }
+                  
+                  if (lawyerSnapshot.hasData && lawyerSnapshot.data!.exists) {
+                    return const LawyerDashboard();
+                  }
+
+                  // Check pending/rejected lawyers in 'lawyers' collection
+                  return FutureBuilder<DocumentSnapshot>(
+                    future: FirebaseFirestore.instance.collection('lawyers').doc(user.uid).get(),
+                    builder: (context, pendingSnapshot) {
+                      if (pendingSnapshot.connectionState == ConnectionState.waiting) {
+                        return const FinalSplashScreen();
+                      }
+                      if (pendingSnapshot.hasData && pendingSnapshot.data!.exists) {
+                        return const LawyerDashboard();
+                      }
+                      
+                      // Fallback: If auth exists but no record in Firestore, go to selection
+                      return const LoginSelectionScreen();
+                    },
+                  );
+                },
+              );
+            },
+          );
         }
-        // Fallback during transition
         return const FinalSplashScreen();
       },
     );
   }
 }
->>>>>>> origin/lawyer-side-branch

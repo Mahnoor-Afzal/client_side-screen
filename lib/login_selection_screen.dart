@@ -105,8 +105,10 @@ class LoginSelectionScreen extends StatelessWidget {
                 label: "Client",
                 icon: Icons.person_search_rounded,
                 onTap: () {
-                  // Navigation for Client Login will go here
-                  debugPrint("Client selection clicked");
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const LoginScreen()),
+                  );
                 },
               ),
             ],
