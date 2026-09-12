@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 name: first_project
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
@@ -27,10 +28,22 @@ environment:
 # dependencies can be manually updated by changing the version numbers below to
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
+=======
+name: untitled
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.4
+
+>>>>>>> origin/lawyer-side-branch
 dependencies:
   flutter:
     sdk: flutter
 
+<<<<<<< HEAD
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
@@ -54,10 +67,26 @@ dependencies:
 
 
 
+=======
+  cupertino_icons: ^1.0.8
+  firebase_core: ^3.1.1
+  cloud_firestore: ^5.0.2
+  firebase_auth: ^5.1.2
+  firebase_storage: ^12.1.2
+  file_picker: ^8.0.0
+  url_launcher: ^6.2.1
+  pdf: ^3.10.8
+  path_provider: ^2.1.1
+  share_plus: ^7.2.1
+  intl: ^0.18.1
+  signature: ^5.4.0
+  universal_html: ^2.3.0
+>>>>>>> origin/lawyer-side-branch
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+<<<<<<< HEAD
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -106,3 +135,9 @@ flutter:
   #         weight: 700
   #
   # For details/packages see instructions...
+=======
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
+>>>>>>> origin/lawyer-side-branch

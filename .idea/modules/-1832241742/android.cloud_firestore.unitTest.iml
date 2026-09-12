@@ -16,9 +16,19 @@
     <output-test url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/cloud_firestore-6.8.0/android/build/intermediates/javac/debugUnitTest/compileDebugUnitTestJavaWithJavac/classes" />
     <exclude-output />
     <content url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/cloud_firestore-6.8.0/android/build/generated/ap_generated_sources/debugUnitTest/out" />
+    <content url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/cloud_firestore-6.8.0/android/build/generated/ap_generated_sources/debugUnitTest/out" />
+    <content url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/cloud_firestore-6.8.0/android/build/generated/ap_generated_sources/debugUnitTest/out" />
     <content url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/cloud_firestore-6.8.0/android/src/test">
       <sourceFolder url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/cloud_firestore-6.8.0/android/src/test/java" isTestSource="true" />
     </content>
+    <content url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/cloud_firestore-6.8.0/android/src/test">
+      <sourceFolder url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/cloud_firestore-6.8.0/android/src/test/java" isTestSource="true" />
+    </content>
+    <content url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/cloud_firestore-6.8.0/android/src/test">
+      <sourceFolder url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/cloud_firestore-6.8.0/android/src/test/java" isTestSource="true" />
+    </content>
+    <content url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/cloud_firestore-6.8.0/android/src/testDebug" />
+    <content url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/cloud_firestore-6.8.0/android/src/testDebug" />
     <content url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/cloud_firestore-6.8.0/android/src/testDebug" />
     <orderEntry type="jdk" jdkName="Android API 34, extension level 7 Platform" jdkType="Android SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

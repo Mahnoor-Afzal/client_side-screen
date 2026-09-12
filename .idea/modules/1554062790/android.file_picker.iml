@@ -24,6 +24,10 @@
       <excludeFolder url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/file_picker-8.3.7/android/.gradle" />
       <excludeFolder url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/file_picker-8.3.7/android/build" />
     </content>
+    <content url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/file_picker-8.3.7/android">
+      <excludeFolder url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/file_picker-8.3.7/android/.gradle" />
+      <excludeFolder url="file://$USER_HOME$/AppData/Local/Pub/Cache/hosted/pub.dev/file_picker-8.3.7/android/build" />
+    </content>
     <orderEntry type="jdk" jdkName="Android API 34, extension level 7 Platform" jdkType="Android SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
