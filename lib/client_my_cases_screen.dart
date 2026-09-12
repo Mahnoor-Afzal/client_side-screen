@@ -16,6 +16,8 @@ class MyCasesScreen extends StatefulWidget {
 
 class _MyCasesScreenState extends State<MyCasesScreen> {
   String _userRole = 'client';
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -302,6 +304,33 @@ class _MyCasesScreenState extends State<MyCasesScreen> {
         elevation: 0,
         title: Text(title, style: const TextStyle(color: gold, fontWeight: FontWeight.bold)),
         iconTheme: const IconThemeData(color: gold),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(60),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(15, 0, 15, 10),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (value) {
+                setState(() {
+                  _searchQuery = value.toLowerCase();
+                });
+              },
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: "Search by case type or name...",
+                hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+                prefixIcon: const Icon(Icons.search, color: gold),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.1),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(vertical: 0),
+              ),
+            ),
+          ),
+        ),
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
@@ -335,7 +364,12 @@ class _MyCasesScreenState extends State<MyCasesScreen> {
                 bool matchesType = widget.filterType == null ||
                     type.toString().toLowerCase() == widget.filterType!.toLowerCase();
 
-                return matchesStatus && matchesType;
+                bool matchesSearch = _searchQuery.isEmpty ||
+                    type.toString().toLowerCase().contains(_searchQuery) ||
+                    (data['lawyerName'] ?? '').toString().toLowerCase().contains(_searchQuery) ||
+                    (data['clientName'] ?? '').toString().toLowerCase().contains(_searchQuery);
+
+                return matchesStatus && matchesType && matchesSearch;
               }).toList();
 
               docs.sort((a, b) {

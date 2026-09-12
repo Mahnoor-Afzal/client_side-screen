@@ -186,7 +186,7 @@ class _LawyerLicenseScreenState extends State<LawyerLicenseScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05),
+                  color: Colors.white.withValues(alpha: 0.05),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: DropdownButtonHideUnderline(
@@ -268,7 +268,7 @@ class _LawyerLicenseScreenState extends State<LawyerLicenseScreen> {
       hintText: hint,
       hintStyle: const TextStyle(color: Colors.white24),
       filled: true,
-      fillColor: Colors.white.withOpacity(0.05),
+      fillColor: Colors.white.withValues(alpha: 0.05),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
     ),
   );
@@ -281,7 +281,7 @@ class _LawyerLicenseScreenState extends State<LawyerLicenseScreen> {
       child: Container(
         height: 100,
         decoration: BoxDecoration(
-          color: hasImage ? const Color(0xFFC5A358).withOpacity(0.15) : Colors.white.withOpacity(0.05),
+          color: hasImage ? const Color(0xFFC5A358).withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: hasImage ? const Color(0xFFC5A358) : Colors.white10),
         ),
@@ -317,7 +317,7 @@ class _LawyerLicenseScreenState extends State<LawyerLicenseScreen> {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.05),
+          color: Colors.white.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: isSelected ? gold : Colors.transparent),
         ),

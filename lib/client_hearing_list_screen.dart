@@ -15,6 +15,8 @@ class HearingListScreen extends StatefulWidget {
 class _HearingListScreenState extends State<HearingListScreen> {
   static const Color navyBlue = Color(0xFF001F3F);
   static const Color accentGold = Color(0xFFD4AF37);
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   DateTime? _parseDate(dynamic value) {
     if (value == null) return null;
@@ -50,6 +52,33 @@ class _HearingListScreenState extends State<HearingListScreen> {
         elevation: 0,
         title: const Text("My Hearings", style: TextStyle(color: accentGold, fontWeight: FontWeight.bold)),
         iconTheme: const IconThemeData(color: accentGold),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(60),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(15, 0, 15, 10),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (value) {
+                setState(() {
+                  _searchQuery = value.toLowerCase();
+                });
+              },
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: "Search hearings by case type or title...",
+                hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+                prefixIcon: const Icon(Icons.search, color: accentGold),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.1),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(vertical: 0),
+              ),
+            ),
+          ),
+        ),
       ),
       body: user == null
           ? const Center(child: Text("Please login to view hearings"))
@@ -143,6 +172,13 @@ class _HearingListScreenState extends State<HearingListScreen> {
                   dynamic rawDate = data['hearingDate'] ?? data['hearing_date'] ?? data['next_hearing_date'] ?? data['nextHearingDate'] ?? data['date'] ?? data['createdAt'];
                   mainHearing['unified_date'] = rawDate;
                   
+                  // Search Filter
+                  bool matchesSearch = _searchQuery.isEmpty || 
+                                     caseTitle.toLowerCase().contains(_searchQuery) || 
+                                     (data['caseNumber'] ?? '').toString().toLowerCase().contains(_searchQuery);
+
+                  if (!matchesSearch) continue;
+
                   DateTime? dt = _parseDate(rawDate);
                   String dateKey = dt != null ? DateFormat('yyyy-MM-dd').format(dt) : (rawDate ?? '').toString();
                   

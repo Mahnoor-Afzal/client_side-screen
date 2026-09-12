@@ -85,7 +85,7 @@ class _LawyerLoginScreenState extends State<LawyerLoginScreen> {
                   hintText: "Enter your email",
                   hintStyle: const TextStyle(color: Colors.white24, fontSize: 14),
                   filled: true,
-                  fillColor: Colors.white.withOpacity(0.05),
+                  fillColor: Colors.white.withValues(alpha: 0.05),
                   prefixIcon: const Icon(Icons.email_outlined, color: goldColor),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -110,7 +110,7 @@ class _LawyerLoginScreenState extends State<LawyerLoginScreen> {
                   hintText: "Enter your password",
                   hintStyle: const TextStyle(color: Colors.white24, fontSize: 14),
                   filled: true,
-                  fillColor: Colors.white.withOpacity(0.05),
+                  fillColor: Colors.white.withValues(alpha: 0.05),
                   prefixIcon: const Icon(Icons.lock_outline, color: goldColor),
                   suffixIcon: IconButton(
                     icon: Icon(_isObscure ? Icons.visibility_off : Icons.visibility, color: Colors.white38),

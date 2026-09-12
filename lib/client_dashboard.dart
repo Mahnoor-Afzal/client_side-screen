@@ -34,7 +34,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _userName = "User";
   String _userEmail = "...";
   String _userRole = "client";
-  String? _profilePictureBase64;
+  String? _profilePicture; // Changed from _profilePictureBase64 to support both URL and Base64
   bool _isLoading = true;
   int _unreadNotifications = 0;
   String _messagesInitialCategory = 'All';
@@ -309,12 +309,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _userName = data?['name'] ?? data?['fullName'] ?? "User";
           _userRole = role;
           
-          // Clean base64 prefix if exists
-          String? pic = data?['profilePicture'] ?? data?['imageUrl'] ?? data?['photoUrl'];
-          if (pic != null && pic.contains(',')) {
-            pic = pic.split(',').last.trim();
-          }
-          _profilePictureBase64 = pic;
+          // Prioritize new profileImageUrl field, fallback to legacy fields
+          _profilePicture = data?['profileImageUrl'] ?? data?['profilePicture'] ?? data?['imageUrl'] ?? data?['photoUrl'];
         });
       }
     } catch (e) {
@@ -403,6 +399,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
     ).then((_) => _fetchUserData());
   }
 
+  ImageProvider? _getProfileImageProvider(String? imageSource) {
+    if (imageSource == null || imageSource.isEmpty) return null;
+    
+    if (imageSource.startsWith('http')) {
+      return NetworkImage(imageSource);
+    } else {
+      // Handle legacy base64 strings
+      try {
+        String cleanBase64 = imageSource.contains(',') ? imageSource.split(',').last : imageSource;
+        cleanBase64 = cleanBase64.replaceAll(RegExp(r'\s+'), '');
+        return MemoryImage(base64Decode(cleanBase64));
+      } catch (e) {
+        debugPrint("Error decoding dashboard profile image: $e");
+        return null;
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     const Color navyBlue = Color(0xFF001F3F);
@@ -463,10 +477,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: CircleAvatar(
                 backgroundColor: gold,
                 radius: 18,
-                backgroundImage: (_profilePictureBase64 != null && _profilePictureBase64!.isNotEmpty)
-                    ? MemoryImage(base64Decode(_profilePictureBase64!))
-                    : null,
-                child: (_profilePictureBase64 == null || _profilePictureBase64!.isEmpty)
+                backgroundImage: _getProfileImageProvider(_profilePicture),
+                child: (_profilePicture == null || _profilePicture!.isEmpty)
                     ? const Icon(Icons.person, color: navyBlue, size: 20)
                     : null,
               ),
@@ -485,10 +497,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   onTap: _navigateToProfile,
                   child: CircleAvatar(
                     backgroundColor: gold,
-                    backgroundImage: (_profilePictureBase64 != null && _profilePictureBase64!.isNotEmpty)
-                        ? MemoryImage(base64Decode(_profilePictureBase64!))
-                        : null,
-                    child: (_profilePictureBase64 == null || _profilePictureBase64!.isEmpty)
+                    backgroundImage: _getProfileImageProvider(_profilePicture),
+                    child: (_profilePicture == null || _profilePicture!.isEmpty)
                         ? const Icon(Icons.person, size: 40, color: navyBlue)
                         : null,
                   ),

@@ -23,12 +23,20 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   final Color navyBlue = const Color(0xFF101D3D);
   final Color goldColor = const Color(0xFFC5A358);
   bool _isUploading = false;
+  String searchQuery = "";
+  final TextEditingController _searchController = TextEditingController();
 
   final String cloudName = 'gasafl8q';
   final String uploadPreset = 'ml_default';
 
   // Cache to store fetched client names so we don't spam Firestore reads
   final Map<String, String> _clientNameCache = {};
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   Future<void> _selectClientAndUpload() async {
     final String? uid = FirebaseAuth.instance.currentUser?.uid;
@@ -280,227 +288,293 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   Widget build(BuildContext context) {
     final String? uid = FirebaseAuth.instance.currentUser?.uid;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      appBar: AppBar(
-        title: const Text("Documents Vault", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        backgroundColor: navyBlue,
-        iconTheme: const IconThemeData(color: Colors.white),
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF5F5F5),
+        appBar: AppBar(
+          title: const Text("Documents Vault", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          backgroundColor: navyBlue,
+          iconTheme: const IconThemeData(color: Colors.white),
+          bottom: const TabBar(
+            indicatorColor: Colors.white,
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white70,
+            tabs: [
+              Tab(text: "RECEIVED", icon: Icon(Icons.call_received, size: 20)),
+              Tab(text: "SENT", icon: Icon(Icons.call_made, size: 20)),
+            ],
+          ),
+        ),
+        body: uid == null
+            ? const Center(child: Text("Please login to see documents"))
+            : Column(
+          children: [
+            if (_isUploading)
+              const LinearProgressIndicator(backgroundColor: Colors.white, color: Colors.blue),
+            Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: TextField(
+                controller: _searchController,
+                onChanged: (value) {
+                  setState(() {
+                    searchQuery = value.toLowerCase();
+                  });
+                },
+                decoration: InputDecoration(
+                  hintText: "Search by document name or client name...",
+                  prefixIcon: const Icon(Icons.search),
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                ),
+              ),
+            ),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _buildDocumentList(uid, isSentTab: false),
+                  _buildDocumentList(uid, isSentTab: true),
+                ],
+              ),
+            ),
+          ],
+        ),
+        floatingActionButton: Column(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            FloatingActionButton.extended(
+              heroTag: "upload",
+              backgroundColor: Colors.blueAccent,
+              onPressed: _isUploading ? null : _selectClientAndUpload,
+              icon: const Icon(Icons.upload_file, color: Colors.white),
+              label: const Text("UPLOAD", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(height: 10),
+            FloatingActionButton.extended(
+              heroTag: "new_form",
+              backgroundColor: goldColor,
+              onPressed: () {
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const WakalatnamaForm()));
+              },
+              icon: const Icon(Icons.add, color: Colors.white),
+              label: const Text("VAKALATNAMA", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
       ),
-      body: uid == null
-          ? const Center(child: Text("Please login to see documents"))
-          : Column(
-        children: [
-          if (_isUploading)
-            const LinearProgressIndicator(backgroundColor: Colors.white, color: Colors.blue),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('documents').snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
+    );
+  }
+
+  Widget _buildDocumentList(String uid, {required bool isSentTab}) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection('documents').snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        var docs = snapshot.data?.docs.where((doc) {
+          var data = doc.data() as Map<String, dynamic>;
+
+          String lId = (data['lawyerId'] ?? data['lawyerid'] ?? "").toString().trim();
+          String cId = (data['clientId'] ?? data['clientid'] ?? data['userId'] ?? "").toString().trim();
+          String rId = (data['receiverId'] ?? "").toString().trim();
+          String sId = (data['senderId'] ?? "").toString().trim();
+          String senderType = (data['senderType'] ?? "").toString().toLowerCase();
+          String uploadedByRole = (data['uploadedByRole'] ?? "").toString().toLowerCase();
+
+          List assigned = [];
+          if (data['assignedLawyers'] is List) assigned.addAll(data['assignedLawyers']);
+          if (data['users'] is List) assigned.addAll(data['users']);
+          List<String> assignedList = assigned.map((e) => e.toString().trim()).toList();
+
+          bool isDirectParty = (lId == uid || cId == uid || rId == uid || sId == uid || assignedList.contains(uid));
+          if (!isDirectParty) return false;
+
+          // Logic to separate Sent and Received for the Lawyer
+          // If the current user (uid) is the actual sender, it goes to "Sent"
+          // Otherwise, if someone else (Client or Supporting Lawyer) sent it, it goes to "Received"
+          bool isSentByMe = (sId == uid);
+          
+          if (isSentTab) {
+            if (!isSentByMe) return false;
+          } else {
+            if (isSentByMe) return false;
+          }
+
+          // Search Filter
+          String type = (data['type'] ?? data['title'] ?? "Document").toString().toLowerCase();
+          String fileName = (data['fileName'] ?? "").toString().toLowerCase();
+          String rawClientName = (data['clientName'] ?? data['userName'] ?? "").toString().toLowerCase();
+
+          return type.contains(searchQuery) || fileName.contains(searchQuery) || rawClientName.contains(searchQuery);
+        }).toList() ?? [];
+
+        // Sort documents by timestamp (newest first)
+        docs.sort((a, b) {
+          var dataA = a.data() as Map<String, dynamic>;
+          var dataB = b.data() as Map<String, dynamic>;
+
+          dynamic timeA = dataA['timestamp'] ?? dataA['createdAt'];
+          dynamic timeB = dataB['timestamp'] ?? dataB['createdAt'];
+
+          Timestamp tsA = (timeA is Timestamp) ? timeA : Timestamp.now();
+          Timestamp tsB = (timeB is Timestamp) ? timeB : Timestamp.now();
+
+          return tsB.compareTo(tsA);
+        });
+
+        if (docs.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(isSentTab ? Icons.outbox : Icons.move_to_inbox, size: 80, color: navyBlue.withValues(alpha: 0.3)),
+                const SizedBox(height: 15),
+                Text(
+                  searchQuery.isEmpty 
+                      ? (isSentTab ? "No sent documents." : "No received documents.")
+                      : "No results for \"$searchQuery\"",
+                  style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          itemCount: docs.length,
+          itemBuilder: (context, index) {
+            var doc = docs[index];
+            var data = doc.data() as Map<String, dynamic>;
+
+            String type = data['type'] ?? data['title'] ?? "Document";
+            String status = (data['status'] ?? "").toString();
+            bool isSigned = status.toLowerCase().contains('signed');
+            String senderType = (data['senderType'] ?? "").toString().toLowerCase();
+
+            String rawClientName = (data['clientName'] ?? data['userName'] ?? "").toString().trim();
+            String clientId = (data['clientId'] ?? data['clientid'] ?? data['userId'] ?? "").toString().trim();
+
+            return FutureBuilder<String>(
+              future: _resolveClientName(rawClientName, clientId),
+              builder: (context, nameSnapshot) {
+                String clientName = nameSnapshot.data ?? (rawClientName.isNotEmpty ? rawClientName : "Client");
+
+                String subtitleText;
+                String uploadedBy = (data['uploadedBy'] ?? "").toString().trim();
+                String uploadedByRole = (data['uploadedByRole'] ?? "").toString().trim();
+
+                if (type == 'Vakalatnama') {
+                  subtitleText = isSigned
+                      ? "Status: Signed by Client ($clientName)"
+                      : "Status: Pending Client Signature";
+                } else {
+                  if (uploadedByRole == "Supporting Lawyer" && uploadedBy.isNotEmpty) {
+                    subtitleText = "From: $uploadedBy";
+                  } else if (senderType == 'client' || senderType.isEmpty) {
+                    subtitleText = "From: $clientName";
+                  } else {
+                    subtitleText = "From: Lawyer (Me)";
+                  }
                 }
 
-                var docs = snapshot.data?.docs.where((doc) {
-                  var data = doc.data() as Map<String, dynamic>;
+                String targetUrl = (data['signedFileUrl'] ??
+                    data['wakalatnamaUrl'] ??
+                    data['fileUrl'] ??
+                    data['pdfUrl'] ??
+                    data['documentUrl'] ??
+                    data['signatureUrl'] ??
+                    "").toString();
 
-                  String lId = (data['lawyerId'] ?? data['lawyerid'] ?? "").toString().trim();
-                  String cId = (data['clientId'] ?? data['clientid'] ?? data['userId'] ?? "").toString().trim();
-                  String rId = (data['receiverId'] ?? "").toString().trim();
-                  String sId = (data['senderId'] ?? "").toString().trim();
+                bool hasFile = targetUrl.isNotEmpty && !targetUrl.contains('dummy.pdf');
+                bool isDownloaded = (senderType == 'lawyer') ? true : (data['isDownloaded'] ?? false);
 
-                  List assigned = [];
-                  if (data['assignedLawyers'] is List) assigned.addAll(data['assignedLawyers']);
-                  if (data['users'] is List) assigned.addAll(data['users']);
-                  List<String> assignedList = assigned.map((e) => e.toString().trim()).toList();
+                String displayDate;
+                if (data['timestamp'] != null && data['timestamp'] is Timestamp) {
+                  displayDate = (data['timestamp'] as Timestamp).toDate().toString().substring(0, 16);
+                } else if (data['createdAt'] != null && data['createdAt'] is Timestamp) {
+                  displayDate = (data['createdAt'] as Timestamp).toDate().toString().substring(0, 16);
+                } else {
+                  String existingDate = (data['date'] ?? "").toString().trim();
+                  if (existingDate.isEmpty || existingDate.toUpperCase() == "N/A") {
+                    displayDate = DateTime.now().toString().substring(0, 16);
+                  } else {
+                    displayDate = existingDate;
+                  }
+                }
 
-                  // Only show documents where the current user is directly involved (as lawyer, client, sender, receiver, or explicitly assigned)
-                  bool isDirectParty = (lId == uid || cId == uid || rId == uid || sId == uid || assignedList.contains(uid));
-
-                  return isDirectParty;
-                }).toList() ?? [];
-
-                // Sort documents by timestamp (newest first)
-                docs.sort((a, b) {
-                  var dataA = a.data() as Map<String, dynamic>;
-                  var dataB = b.data() as Map<String, dynamic>;
-                  
-                  dynamic timeA = dataA['timestamp'] ?? dataA['createdAt'];
-                  dynamic timeB = dataB['timestamp'] ?? dataB['createdAt'];
-                  
-                  Timestamp tsA = (timeA is Timestamp) ? timeA : Timestamp.now();
-                  Timestamp tsB = (timeB is Timestamp) ? timeB : Timestamp.now();
-                  
-                  return tsB.compareTo(tsA);
-                });
-
-                if (docs.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                return Card(
+                  elevation: 3,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: isSigned ? Colors.green.shade100 : (type == 'Vakalatnama' ? Colors.blue.shade100 : Colors.purple.shade100),
+                      child: Icon(
+                        type == 'Vakalatnama' ? (isSigned ? Icons.verified : Icons.gavel) : Icons.description,
+                        color: isSigned ? Colors.green.shade800 : (type == 'Vakalatnama' ? Colors.blue : Colors.purple),
+                      ),
+                    ),
+                    title: Row(
                       children: [
-                        Icon(Icons.folder_copy_outlined, size: 80, color: navyBlue.withOpacity(0.3)),
-                        const SizedBox(height: 15),
-                        const Text("No documents found.", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                        Expanded(
+                          child: Text(type, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                        if (isSigned)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.green,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Text(
+                              "SIGNED",
+                              style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                            ),
+                          ),
                       ],
                     ),
-                  );
-                }
-
-                return ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: docs.length,
-                  itemBuilder: (context, index) {
-                    var doc = docs[index];
-                    var data = doc.data() as Map<String, dynamic>;
-
-                    String type = data['type'] ?? data['title'] ?? "Document";
-                    String status = (data['status'] ?? "").toString();
-                    bool isSigned = status.toLowerCase().contains('signed');
-                    String senderType = (data['senderType'] ?? "").toString().toLowerCase();
-
-                    String rawClientName = (data['clientName'] ?? data['userName'] ?? "").toString().trim();
-                    String clientId = (data['clientId'] ?? data['clientid'] ?? data['userId'] ?? "").toString().trim();
-
-                    return FutureBuilder<String>(
-                      future: _resolveClientName(rawClientName, clientId),
-                      builder: (context, nameSnapshot) {
-                        String clientName = nameSnapshot.data ?? (rawClientName.isNotEmpty ? rawClientName : "Client");
-
-                        String subtitleText;
-                        String uploadedBy = (data['uploadedBy'] ?? "").toString().trim();
-                        String uploadedByRole = (data['uploadedByRole'] ?? "").toString().trim();
-
-                        if (type == 'Vakalatnama') {
-                          subtitleText = isSigned
-                              ? "Status: Signed by Client ($clientName)"
-                              : "Status: Pending Client Signature";
-                        } else {
-                          if (uploadedByRole == "Supporting Lawyer" && uploadedBy.isNotEmpty) {
-                            subtitleText = "From: $uploadedBy";
-                          } else if (senderType == 'client' || senderType.isEmpty) {
-                            subtitleText = "From: $clientName";
-                          } else {
-                            subtitleText = "From: Lawyer";
-                          }
-                        }
-
-                        String targetUrl = (data['signedFileUrl'] ??
-                            data['wakalatnamaUrl'] ??
-                            data['fileUrl'] ??
-                            data['pdfUrl'] ??
-                            data['documentUrl'] ??
-                            data['signatureUrl'] ??
-                            "").toString();
-
-                        bool hasFile = targetUrl.isNotEmpty && !targetUrl.contains('dummy.pdf');
-                        bool isDownloaded = (senderType == 'lawyer') ? true : (data['isDownloaded'] ?? false);
-
-                        String displayDate;
-                        if (data['timestamp'] != null && data['timestamp'] is Timestamp) {
-                          displayDate = (data['timestamp'] as Timestamp).toDate().toString().substring(0, 16);
-                        } else if (data['createdAt'] != null && data['createdAt'] is Timestamp) {
-                          displayDate = (data['createdAt'] as Timestamp).toDate().toString().substring(0, 16);
-                        } else {
-                          String existingDate = (data['date'] ?? "").toString().trim();
-                          if (existingDate.isEmpty || existingDate.toUpperCase() == "N/A") {
-                            displayDate = DateTime.now().toString().substring(0, 16);
-                          } else {
-                            displayDate = existingDate;
-                          }
-                        }
-
-                        return Card(
-                          elevation: 3,
-                          margin: const EdgeInsets.only(bottom: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: isSigned ? Colors.green.shade100 : (type == 'Vakalatnama' ? Colors.blue.shade100 : Colors.purple.shade100),
-                              child: Icon(
-                                type == 'Vakalatnama' ? (isSigned ? Icons.verified : Icons.gavel) : Icons.description,
-                                color: isSigned ? Colors.green.shade800 : (type == 'Vakalatnama' ? Colors.blue : Colors.purple),
-                              ),
-                            ),
-                            title: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(type, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                ),
-                                if (isSigned)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: Colors.green,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Text(
-                                      "SIGNED",
-                                      style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                    subtitleText,
-                                    style: TextStyle(
-                                        color: isSigned ? Colors.green.shade900 : Colors.black87,
-                                        fontWeight: isSigned ? FontWeight.bold : FontWeight.normal
-                                    )
-                                ),
-                                Text(
-                                    "Date: $displayDate",
-                                    style: const TextStyle(fontSize: 11)
-                                ),
-                              ],
-                            ),
-                            trailing: hasFile
-                                ? IconButton(
-                              icon: Icon(
-                                isDownloaded ? Icons.visibility : Icons.download_for_offline,
-                                color: isDownloaded ? Colors.grey.shade700 : Colors.green,
-                                size: 28,
-                              ),
-                              onPressed: () => _handleDocumentAction(doc.id, data),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                            subtitleText,
+                            style: TextStyle(
+                                color: isSigned ? Colors.green.shade900 : Colors.black87,
+                                fontWeight: isSigned ? FontWeight.bold : FontWeight.normal
                             )
-                                : null,
-                            onTap: hasFile ? () => _handleDocumentAction(doc.id, data) : null,
-                          ),
-                        );
-                      },
-                    );
-                  },
+                        ),
+                        Text(
+                            "Date: $displayDate",
+                            style: const TextStyle(fontSize: 11)
+                        ),
+                      ],
+                    ),
+                    trailing: hasFile
+                        ? IconButton(
+                      icon: Icon(
+                        isDownloaded ? Icons.visibility : Icons.download_for_offline,
+                        color: isDownloaded ? Colors.grey.shade700 : Colors.green,
+                        size: 28,
+                      ),
+                      onPressed: () => _handleDocumentAction(doc.id, data),
+                    )
+                        : null,
+                    onTap: hasFile ? () => _handleDocumentAction(doc.id, data) : null,
+                  ),
                 );
               },
-            ),
-          ),
-        ],
-      ),
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          FloatingActionButton.extended(
-            heroTag: "upload",
-            backgroundColor: Colors.blueAccent,
-            onPressed: _isUploading ? null : _selectClientAndUpload,
-            icon: const Icon(Icons.upload_file, color: Colors.white),
-            label: const Text("UPLOAD", style: TextStyle(color: Colors.white,fontWeight: FontWeight.bold)),
-          ),
-          const SizedBox(height: 10),
-          FloatingActionButton.extended(
-            heroTag: "new_form",
-            backgroundColor: goldColor,
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => const WakalatnamaForm()));
-            },
-            icon: const Icon(Icons.add, color: Colors.white),
-            label: const Text("VAKALATNAMA", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
+            );
+          },
+        );
+      },
     );
   }
 

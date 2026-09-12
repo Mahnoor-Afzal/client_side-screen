@@ -47,6 +47,36 @@ class _LawyerListScreenState extends State<LawyerListScreen> {
     return value.toString();
   }
 
+  ImageProvider? _getProfileImage(Map<String, dynamic> data) {
+    dynamic profilePicData = data['profileImageUrl'] ??
+        data['profilePicture'] ??
+        data['imageUrl'] ??
+        data['profile_pic'] ??
+        data['profilePic'] ??
+        data['profile_picture'] ??
+        data['image'] ??
+        data['photoUrl'] ??
+        data['profile_image'];
+
+    if (profilePicData != null) {
+      if (profilePicData is String && profilePicData.trim().isNotEmpty) {
+        String imgStr = profilePicData.trim();
+        if (imgStr.startsWith('http')) {
+          return NetworkImage(imgStr);
+        } else {
+          try {
+            String cleanBase64 = imgStr.contains(',') ? imgStr.split(',').last : imgStr;
+            cleanBase64 = cleanBase64.replaceAll(RegExp(r'\s+'), '');
+            return MemoryImage(base64Decode(cleanBase64));
+          } catch (e) {
+            debugPrint("Failed to decode image: $e");
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_showSuccess) {
@@ -579,10 +609,14 @@ class _LawyerListScreenState extends State<LawyerListScreen> {
           .add(requestData);
 
       // 2. Send Notification to Lawyer (Firestore entry for Dashboard)
+      String notificationBody = widget.aiAnalysis != null 
+          ? '$clientName has sent you a $type request with AI Analysis.'
+          : '$clientName has sent you a $type request.';
+
       await FirebaseFirestore.instance.collection('notifications').add({
         'userId': lawyerId,
         'title': 'New $type Request',
-        'body': '$clientName has sent you a $type request with AI Analysis.',
+        'body': notificationBody,
         'createdAt': FieldValue.serverTimestamp(),
         'requestId': requestRef.id,
         'requestCollection': collectionName,
@@ -594,7 +628,7 @@ class _LawyerListScreenState extends State<LawyerListScreen> {
       await NotificationHelper.sendPushNotification(
         lawyerId,
         "New $type Request",
-        "$clientName has sent you a $type request.",
+        notificationBody,
         {
           'click_action': 'FLUTTER_NOTIFICATION_CLICK',
           'type': 'request_received',

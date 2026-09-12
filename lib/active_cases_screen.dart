@@ -6,11 +6,24 @@ import 'Hearing_details.dart';
 import 'chat_screen.dart';
 import 'wakalatnama_form.dart';
 
-class ActiveCasesScreen extends StatelessWidget {
+class ActiveCasesScreen extends StatefulWidget {
   const ActiveCasesScreen({super.key});
 
+  @override
+  State<ActiveCasesScreen> createState() => _ActiveCasesScreenState();
+}
+
+class _ActiveCasesScreenState extends State<ActiveCasesScreen> {
   final Color navyBlue = const Color(0xFF101D3D);
   final Color goldColor = const Color(0xFFC5A358);
+  String searchQuery = "";
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,69 +38,107 @@ class ActiveCasesScreen extends StatelessWidget {
       ),
       body: uid == null
           ? const Center(child: Text("Please login to see your cases"))
-          : StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('suit_a_file_request').snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: TextField(
+                    controller: _searchController,
+                    onChanged: (value) {
+                      setState(() {
+                        searchQuery = value.toLowerCase();
+                      });
+                    },
+                    decoration: InputDecoration(
+                      hintText: "Search by client name, case type or ID...",
+                      prefixIcon: const Icon(Icons.search),
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance.collection('suit_a_file_request').snapshots(),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
 
-          List<DocumentSnapshot> allActive = [];
-          if (snapshot.hasData) {
-            allActive = snapshot.data!.docs.where((doc) {
-              var data = doc.data() as Map<String, dynamic>;
-              String status = (data['status'] ?? "").toString().toLowerCase().trim();
-              String leadId = (data['lawyerid'] ?? data['lawyerId'] ?? "").toString().trim();
+                      List<DocumentSnapshot> allActive = [];
+                      if (snapshot.hasData) {
+                        allActive = snapshot.data!.docs.where((doc) {
+                          var data = doc.data() as Map<String, dynamic>;
+                          String status = (data['status'] ?? "").toString().toLowerCase().trim();
+                          String leadId = (data['lawyerid'] ?? data['lawyerId'] ?? "").toString().trim();
 
-              List assigned = data['assignedLawyers'] ?? [];
-              bool isAssigned = (leadId == uid.trim()) || assigned.contains(uid.trim());
+                          List assigned = data['assignedLawyers'] ?? [];
+                          bool isAssigned = (leadId == uid.trim()) || assigned.contains(uid.trim());
 
-              bool isActive = status == 'accepted' || status == 'active';
-              return isActive && isAssigned;
-            }).toList();
-          }
+                          bool isActive = status == 'accepted' || status == 'active';
+                          if (!isActive || !isAssigned) return false;
 
-          if (allActive.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.assignment_turned_in_outlined, size: 70, color: Colors.grey[300]),
-                  const SizedBox(height: 10),
-                  const Text("No active cases found", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
-                ],
-              ),
-            );
-          }
+                          // Search Filter
+                          String name = (data['clientName'] ?? data['fullName'] ?? "").toString().toLowerCase();
+                          String type = (data['caseType'] ?? data['title'] ?? "").toString().toLowerCase();
+                          String id = doc.id.toLowerCase();
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(12),
-            itemCount: allActive.length,
-            itemBuilder: (context, index) {
-              var doc = allActive[index];
-              var data = doc.data() as Map<String, dynamic>;
-              String name = data['clientName'] ?? data['fullName'] ?? "Client";
-              String type = data['caseType'] ?? data['title'] ?? "Active Matter";
-              String clientId = data['clientId'] ?? data['userId'] ?? "";
-              List teamNames = data['teamNames'] ?? [];
+                          return name.contains(searchQuery) || type.contains(searchQuery) || id.contains(searchQuery);
+                        }).toList();
+                      }
 
-              return _buildCaseCard(context, doc.id, name, type, clientId, uid, teamNames);
-            },
-          );
-        },
-      ),
+                      if (allActive.isEmpty) {
+                        return Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.assignment_turned_in_outlined, size: 70, color: Colors.grey[300]),
+                              const SizedBox(height: 10),
+                              Text(
+                                searchQuery.isEmpty ? "No active cases found" : "No results for \"$searchQuery\"",
+                                style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      return ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        itemCount: allActive.length,
+                        itemBuilder: (context, index) {
+                          var doc = allActive[index];
+                          var data = doc.data() as Map<String, dynamic>;
+                          String name = data['clientName'] ?? data['fullName'] ?? "Client";
+                          String type = data['caseType'] ?? data['title'] ?? "Active Matter";
+                          String clientId = data['clientId'] ?? data['userId'] ?? "";
+                          List teamNames = data['teamNames'] ?? [];
+
+                          return _buildCaseCard(context, doc.id, name, type, clientId, uid, teamNames);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
     );
   }
 
   Widget _buildCaseCard(
-      BuildContext context,
-      String id,
-      String name,
-      String type,
-      String clientId,
-      String currentLawyerId,
-      List teamNames,
-      ) {
+    BuildContext context,
+    String id,
+    String name,
+    String type,
+    String clientId,
+    String currentLawyerId,
+    List teamNames,
+  ) {
     String lawyersText = teamNames.isEmpty ? "" : "Team: ${teamNames.join(', ')}";
 
     return Card(
@@ -213,7 +264,6 @@ class ActiveCasesScreen extends StatelessWidget {
     );
   }
 
-  // Lawyer closes case -> Updates fields in 'suit_a_file_request' for client tracking
   void _showCloseCaseDialog(BuildContext context, String caseId) {
     showDialog(
       context: context,
@@ -230,8 +280,6 @@ class ActiveCasesScreen extends StatelessWidget {
             onPressed: () async {
               try {
                 DocumentReference caseRef = FirebaseFirestore.instance.collection('suit_a_file_request').doc(caseId);
-
-                // Proper fields initialized for client rating workflow
                 await caseRef.update({
                   'status': 'closed',
                   'closedBy': 'lawyer',
@@ -240,12 +288,10 @@ class ActiveCasesScreen extends StatelessWidget {
                   'rating': 0.0,
                   'review': '',
                 });
-
                 await FirebaseFirestore.instance.collection('coordination').doc(caseId).set({
                   'status': 'closed',
                   'updatedAt': FieldValue.serverTimestamp(),
                 }, SetOptions(merge: true));
-
                 if (context.mounted) {
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -290,20 +336,16 @@ class ActiveCasesScreen extends StatelessWidget {
                 if (lawyerQuery.docs.isNotEmpty) {
                   String associateId = lawyerQuery.docs.first.id;
                   String associateName = lawyerQuery.docs.first.get('fullName') ?? "Lawyer";
-
                   WriteBatch batch = FirebaseFirestore.instance.batch();
                   DocumentReference caseRef = FirebaseFirestore.instance.collection('suit_a_file_request').doc(caseId);
-
                   batch.update(caseRef, {
                     'assignedLawyers': FieldValue.arrayUnion([associateId]),
                     'teamNames': FieldValue.arrayUnion([associateName])
                   });
-
                   DocumentReference chatRef = FirebaseFirestore.instance.collection('chat').doc(caseId);
                   batch.set(chatRef, {
                     'users': FieldValue.arrayUnion([associateId])
                   }, SetOptions(merge: true));
-
                   DocumentReference coordRef = FirebaseFirestore.instance.collection('coordination').doc(caseId);
                   batch.set(coordRef, {
                     'requestId': caseId,
@@ -314,9 +356,7 @@ class ActiveCasesScreen extends StatelessWidget {
                     'updatedAt': FieldValue.serverTimestamp(),
                     'status': 'active'
                   }, SetOptions(merge: true));
-
                   await batch.commit();
-
                   if (context.mounted) {
                     Navigator.pop(context);
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -341,7 +381,7 @@ class ActiveCasesScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildActionChip(BuildContext context, IconData icon,String label, Color color, VoidCallback onTap) {
+  Widget _buildActionChip(BuildContext context, IconData icon, String label, Color color, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),

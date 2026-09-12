@@ -6,8 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
-
-import 'case_requet_screen.dart';
+import 'case_request_screen.dart';
 import 'pending_cases_screen.dart';
 import 'login_selection_screen.dart';
 import 'active_cases_screen.dart';
@@ -130,14 +129,31 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
       Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
 
   void _onItemTapped(int index) {
+    if (index == _selectedIndex && index != 0) return; // Prevent re-navigating to same tab
     setState(() => _selectedIndex = index);
-    final screens = [
-      null,
-      const MessagesListScreen(),
-      const PendingCasesScreen(),
-      const ActiveCasesScreen()
-    ];
-    if (screens[index] != null) _navigateTo(screens[index]!);
+    
+    if (index == 0) return; // Stay on dashboard
+    
+    Widget? screen;
+    switch (index) {
+      case 1:
+        screen = const MessagesListScreen();
+        break;
+      case 2:
+        screen = const PendingCasesScreen();
+        break;
+      case 3:
+        screen = const ActiveCasesScreen();
+        break;
+    }
+    
+    if (screen != null) {
+      final Widget finalScreen = screen;
+      Navigator.push(context, MaterialPageRoute(builder: (_) => finalScreen)).then((_) {
+        // Reset to dashboard tab when coming back
+        if (mounted) setState(() => _selectedIndex = 0);
+      });
+    }
   }
 
   // Pending Total Stream (Case Requests + Consultation Requests) - For Bottom Nav 'Pending' Tab
@@ -348,7 +364,8 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
 
     CroppedFile? croppedFile;
     try {
-      croppedFile = await ImageCropper().cropImage(
+      final imageCropper = ImageCropper();
+      croppedFile = await imageCropper.cropImage(
         sourcePath: image.path,
         aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
         uiSettings: [
@@ -367,7 +384,8 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
       debugPrint("Cropper exception: $e");
     }
 
-    final finalBytes = (croppedFile != null) ? await croppedFile.readAsBytes() : await image.readAsBytes();
+    if (croppedFile == null) return;
+    final finalBytes = await croppedFile.readAsBytes();
     if (!mounted) return;
     setState(() => _isUploadingImage = true);
 
@@ -376,6 +394,7 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
         Uri.parse("https://api.cloudinary.com/v1_1/gasafl8q/image/upload"),
         body: {'upload_preset': 'ml_default', 'file': 'data:image/jpeg;base64,${base64Encode(finalBytes)}'},
       );
+
 
       final responseData = jsonDecode(response.body);
       if (response.statusCode == 200 || response.statusCode == 201) {
@@ -415,7 +434,8 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
             currentUser?.displayName ??
             (currentUser?.email != null ? currentUser!.email!.split('@')[0] : "Lawyer");
 
-        final profileImageUrl = data?['profileImageUrl'];
+        // Standardized image field detection
+        final String? profileImageUrl = data?['profileImageUrl'] ?? data?['profilePicture'] ?? data?['imageUrl'];
 
         return Scaffold(
           backgroundColor: lightGrey,
@@ -603,7 +623,7 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
                 builder: (_, snapshot) => Text("${snapshot.data ?? 0}", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
               ),
               const SizedBox(height: 3),
-              Icon(Icons.folder_open, size: 18, color: color.withOpacity(0.7)),
+              Icon(Icons.folder_open, size: 18, color: color.withValues(alpha: 0.7)),
               const SizedBox(height: 3),
               Text(label, textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.w600, fontSize: 11)),
             ],
@@ -623,13 +643,27 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircleAvatar(backgroundColor: color.withOpacity(0.1), child: Icon(icon, color: color)),
+          CircleAvatar(backgroundColor: color.withValues(alpha: 0.1), child: Icon(icon, color: color)),
           const SizedBox(height: 12),
           Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: navyBlue), textAlign: TextAlign.center),
         ],
       ),
     ),
   );
+
+  ImageProvider? _getProfileImageProvider(String? source) {
+    if (source == null || source.isEmpty) return null;
+    if (source.startsWith('http')) {
+      return NetworkImage(source);
+    } else {
+      try {
+        String cleanBase64 = source.contains(',') ? source.split(',').last : source;
+        return MemoryImage(base64Decode(cleanBase64.replaceAll(RegExp(r'\s+'), '')));
+      } catch (e) {
+        return null;
+      }
+    }
+  }
 
   Widget _buildDrawer(String name, String? profileImageUrl) => Drawer(
     child: Container(
@@ -656,7 +690,7 @@ class _LawyerDashboardState extends State<LawyerDashboard> {
                                 CircleAvatar(
                                   radius: 36,
                                   backgroundColor: Colors.white24,
-                                  backgroundImage: (profileImageUrl != null && profileImageUrl.isNotEmpty) ? NetworkImage(profileImageUrl) : null,
+                                  backgroundImage: _getProfileImageProvider(profileImageUrl),
                                   child: (profileImageUrl == null || profileImageUrl.isEmpty) ? const Icon(Icons.person, color: Colors.white, size: 36) : null,
                                 ),
                                 if (_isUploadingImage)

@@ -171,7 +171,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.chat_bubble_outline, size: 60, color: Colors.grey.withOpacity(0.5)),
+          Icon(Icons.chat_bubble_outline, size: 60, color: Colors.grey.withValues(alpha: 0.5)),
           const SizedBox(height: 10),
           Text("No $msg found.", style: const TextStyle(color: Colors.grey)),
         ],

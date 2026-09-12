@@ -181,7 +181,7 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                         width: 95,
                         height: 95,
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.05),
+                          color: Colors.white.withValues(alpha: 0.05),
                           shape: BoxShape.circle,
                           border: Border.all(color: goldColor, width: 2),
                           image: _getProfileImageProvider(),
@@ -310,7 +310,7 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
         hintStyle: const TextStyle(color: Colors.white24, fontSize: 12),
         prefixIcon: Icon(icon, color: const Color(0xFFC5A358), size: 20),
         filled: true,
-        fillColor: Colors.white.withOpacity(0.05),
+        fillColor: Colors.white.withValues(alpha: 0.05),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
         contentPadding: const EdgeInsets.symmetric(vertical: 10),
         counterText: "",
@@ -327,7 +327,7 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
+            color: Colors.white.withValues(alpha: 0.05),
             borderRadius: BorderRadius.circular(12),
           ),
           child: DropdownButtonHideUnderline(

@@ -108,8 +108,22 @@ Future<void> downloadFile(BuildContext context, String fileUrl, String fileName)
   }
 }
 
-class CoordinationScreen extends StatelessWidget {
+class CoordinationScreen extends StatefulWidget {
   const CoordinationScreen({super.key});
+
+  @override
+  State<CoordinationScreen> createState() => _CoordinationScreenState();
+}
+
+class _CoordinationScreenState extends State<CoordinationScreen> {
+  String searchQuery = "";
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -138,14 +152,42 @@ class CoordinationScreen extends StatelessWidget {
         ),
         body: uid == null
             ? const Center(child: Text("Please login to see coordination data"))
-            : TabBarView(
-          children: [
-            _MyTeamsTab(uid: uid),
-            _CoordinatedCasesTab(uid: uid),
-            _RequestsTab(currentUid: uid),
-            _VerifiedLawyersTab(currentUid: uid),
-          ],
-        ),
+            : Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: TextField(
+                      controller: _searchController,
+                      onChanged: (value) {
+                        setState(() {
+                          searchQuery = value.toLowerCase();
+                        });
+                      },
+                      decoration: InputDecoration(
+                        hintText: "Search by name, case, or location...",
+                        prefixIcon: const Icon(Icons.search),
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        _MyTeamsTab(uid: uid, searchQuery: searchQuery),
+                        _CoordinatedCasesTab(uid: uid, searchQuery: searchQuery),
+                        _RequestsTab(currentUid: uid, searchQuery: searchQuery),
+                        _VerifiedLawyersTab(currentUid: uid, searchQuery: searchQuery),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
       ),
     );
   }
@@ -156,7 +198,8 @@ class CoordinationScreen extends StatelessWidget {
 // ==========================================
 class _MyTeamsTab extends StatelessWidget {
   final String uid;
-  const _MyTeamsTab({required this.uid});
+  final String searchQuery;
+  const _MyTeamsTab({required this.uid, required this.searchQuery});
 
   @override
   Widget build(BuildContext context) {
@@ -178,6 +221,8 @@ class _MyTeamsTab extends StatelessWidget {
           var data = doc.data() as Map<String, dynamic>;
           String senderId = (data['senderId'] ?? '').toString().trim();
           String receiverId = (data['receiverId'] ?? '').toString().trim();
+          String clientName = (data['clientName'] ?? '').toString().toLowerCase();
+          String caseId = (data['caseId'] ?? '').toString().toLowerCase();
 
           bool isIncluded = senderId == uid || receiverId == uid;
 
@@ -187,7 +232,9 @@ class _MyTeamsTab extends StatelessWidget {
             }
           });
 
-          return isIncluded;
+          if (!isIncluded) return false;
+
+          return clientName.contains(searchQuery) || caseId.contains(searchQuery);
         }).toList();
 
         if (myCoordinationDocs.isEmpty) return _buildEmptyState();
@@ -229,7 +276,10 @@ class _MyTeamsTab extends StatelessWidget {
         children: [
           Icon(Icons.group_off_outlined, size: 70, color: Colors.grey[300]),
           const SizedBox(height: 10),
-          const Text("No active team coordination found", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+          Text(
+            searchQuery.isEmpty ? "No active team coordination found" : "No results for \"$searchQuery\"",
+            style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
+          ),
         ],
       ),
     );
@@ -627,7 +677,7 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, -2))
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, -2))
                   ],
                 ),
                 child: Row(
@@ -664,7 +714,8 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
 // ==========================================
 class _CoordinatedCasesTab extends StatelessWidget {
   final String uid;
-  const _CoordinatedCasesTab({required this.uid});
+  final String searchQuery;
+  const _CoordinatedCasesTab({required this.uid, required this.searchQuery});
 
   void _showHearingHistory(BuildContext context, String caseId, String clientName) {
     showModalBottomSheet(
@@ -723,7 +774,7 @@ class _CoordinatedCasesTab extends StatelessWidget {
                         String historyDate = safeFormatDate(hData['hearingDate'] ?? hData['hearing_date']);
 
                         return Card(
-                          color: Colors.white.withOpacity(0.1),
+                          color: Colors.white.withValues(alpha: 0.1),
                           margin: const EdgeInsets.only(bottom: 10),
                           child: ListTile(
                             leading: const Icon(Icons.event_available, color: kGoldColor),
@@ -763,7 +814,7 @@ class _CoordinatedCasesTab extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: kGoldColor.withOpacity(0.2),
+                  color: kGoldColor.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: kGoldColor),
                 ),
@@ -1007,7 +1058,7 @@ class _CoordinatedCasesTab extends StatelessWidget {
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                             child: ListTile(
                               leading: CircleAvatar(
-                                backgroundColor: isVakalatnama ? Colors.green.shade50 : kNavyBlue.withOpacity(0.1),
+                                backgroundColor: isVakalatnama ? Colors.green.shade50 : kNavyBlue.withValues(alpha: 0.1),
                                 child: Icon(
                                   isVakalatnama ? Icons.verified : Icons.insert_drive_file,
                                   color: isVakalatnama ? Colors.green : kNavyBlue,
@@ -1070,7 +1121,7 @@ class _CoordinatedCasesTab extends StatelessWidget {
         if (coordSnapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
 
         if (!coordSnapshot.hasData || coordSnapshot.data!.docs.isEmpty) {
-          return const Center(child: Text("No coordinated cases found.", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)));
+          return Center(child: Text(searchQuery.isEmpty ? "No coordinated cases found." : "No results for \"$searchQuery\"", style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)));
         }
 
         List<String> acceptedCaseIds = coordSnapshot.data!.docs.map((doc) {
@@ -1079,7 +1130,7 @@ class _CoordinatedCasesTab extends StatelessWidget {
         }).where((id) => id.isNotEmpty).toList();
 
         if (acceptedCaseIds.isEmpty) {
-          return const Center(child: Text("No coordinated cases found.", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)));
+          return Center(child: Text(searchQuery.isEmpty ? "No coordinated cases found." : "No results for \"$searchQuery\"", style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)));
         }
 
         return StreamBuilder<QuerySnapshot>(
@@ -1088,15 +1139,22 @@ class _CoordinatedCasesTab extends StatelessWidget {
             if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
 
             if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-              return const Center(child: Text("No coordinated cases found.", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)));
+              return Center(child: Text(searchQuery.isEmpty ? "No coordinated cases found." : "No results for \"$searchQuery\"", style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)));
             }
 
             var coordinatedCases = snapshot.data!.docs.where((doc) {
-              return acceptedCaseIds.contains(doc.id);
+              if (!acceptedCaseIds.contains(doc.id)) return false;
+              
+              var data = doc.data() as Map<String, dynamic>;
+              String clientName = (data['clientName'] ?? data['client_name'] ?? data['userName'] ?? "Client").toString().toLowerCase();
+              String caseType = (data['caseType'] ?? data['category'] ?? "Assigned Case").toString().toLowerCase();
+              String leadName = (data['leadLawyerName'] ?? data['lawyerName'] ?? "Lead Lawyer").toString().toLowerCase();
+
+              return clientName.contains(searchQuery) || caseType.contains(searchQuery) || leadName.contains(searchQuery);
             }).toList();
 
             if (coordinatedCases.isEmpty) {
-              return const Center(child: Text("You have not been added as a supporting lawyer to any cases.", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)));
+              return Center(child: Text(searchQuery.isEmpty ? "You have not been added as a supporting lawyer to any cases." : "No results for \"$searchQuery\"", style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)));
             }
 
             return ListView.builder(
@@ -1125,7 +1183,7 @@ class _CoordinatedCasesTab extends StatelessWidget {
                             Text(clientName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: kNavyBlue)),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(color: kGoldColor.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+                              decoration: BoxDecoration(color: kGoldColor.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
                               child: const Text("Supporting Lawyer", style: TextStyle(color: kNavyBlue, fontWeight: FontWeight.bold, fontSize: 11)),
                             ),
                           ],
@@ -1330,7 +1388,8 @@ class _SupportingLawyerUploadDialogState extends State<SupportingLawyerUploadDia
 // ==========================================
 class _RequestsTab extends StatelessWidget {
   final String currentUid;
-  const _RequestsTab({required this.currentUid});
+  final String searchQuery;
+  const _RequestsTab({required this.currentUid, required this.searchQuery});
 
   Future<void> _handleRequest(BuildContext context, String reqId, String caseId, String senderId, bool accept) async {
     try {
@@ -1417,7 +1476,16 @@ class _RequestsTab extends StatelessWidget {
           );
         }
 
-        var requests = snapshot.data!.docs;
+        var requests = snapshot.data!.docs.where((doc) {
+           var data = doc.data() as Map<String, dynamic>;
+           String senderName = (data['senderName'] ?? "Lawyer").toString().toLowerCase();
+           String clientName = (data['clientName'] ?? "Client").toString().toLowerCase();
+           return senderName.contains(searchQuery) || clientName.contains(searchQuery);
+        }).toList();
+
+        if (requests.isEmpty) {
+          return Center(child: Text(searchQuery.isEmpty ? "No incoming coordination requests." : "No results for \"$searchQuery\"", style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)));
+        }
 
         return ListView.builder(
           padding: const EdgeInsets.all(12),
@@ -1509,7 +1577,8 @@ class _RequestsTab extends StatelessWidget {
 // ==========================================
 class _VerifiedLawyersTab extends StatelessWidget {
   final String currentUid;
-  const _VerifiedLawyersTab({required this.currentUid});
+  final String searchQuery;
+  const _VerifiedLawyersTab({required this.currentUid, required this.searchQuery});
 
   void _showCaseSelectionDialog(BuildContext context, String targetLawyerId, String targetLawyerName) async {
     try {
@@ -1577,11 +1646,17 @@ class _VerifiedLawyersTab extends StatelessWidget {
               (data['verified'] == true) ||
               (!data.containsKey('isApproved') && !data.containsKey('isVerified'));
 
-          return isApproved;
+          if (!isApproved) return false;
+
+          String name = (data['fullName'] ?? data['name'] ?? "").toString().toLowerCase();
+          String category = (data['category'] ?? data['specialization'] ?? "").toString().toLowerCase();
+          String location = (data['location'] ?? data['city'] ?? "").toString().toLowerCase();
+
+          return name.contains(searchQuery) || category.contains(searchQuery) || location.contains(searchQuery);
         }).toList();
 
         if (lawyers.isEmpty) {
-          return const Center(child: Text("No verified lawyers available", style: TextStyle(color: Colors.grey)));
+          return Center(child: Text(searchQuery.isEmpty ? "No verified lawyers available" : "No results for \"$searchQuery\"", style: const TextStyle(color: Colors.grey)));
         }
 
         return ListView.builder(
@@ -1779,7 +1854,7 @@ class CoordinationCard extends StatelessWidget {
                               margin: const EdgeInsets.symmetric(vertical: 6),
                               child: ListTile(
                                 leading: CircleAvatar(
-                                  backgroundColor: kNavyBlue.withOpacity(0.1),
+                                  backgroundColor: kNavyBlue.withValues(alpha: 0.1),
                                   child: const Icon(Icons.lock_outline, color: kNavyBlue),
                                 ),
                                 title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -1938,7 +2013,7 @@ class CoordinationCard extends StatelessWidget {
                     return Chip(
                       avatar: CircleAvatar(backgroundColor: isMe ? kNavyBlue : Colors.grey.shade400, child: const Icon(Icons.gavel, size: 12, color: Colors.white)),
                       label: Text(displayName, style: TextStyle(fontSize: 12, fontWeight: isMe ? FontWeight.bold : FontWeight.w600, color: isMe ? kNavyBlue : Colors.black87)),
-                      backgroundColor: isMe ? kGoldColor.withOpacity(0.2) : Colors.grey.shade100,
+                      backgroundColor: isMe ? kGoldColor.withValues(alpha: 0.2) : Colors.grey.shade100,
                       side: BorderSide(color: isMe ? kGoldColor : Colors.grey.shade300),
                       onDeleted: (isLeadLawyer && !isMe)
                           ? () => _removeLawyerFromTeam(context, lDoc.id, lName)

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'lawyer_login_screen.dart'; // Added import for Lawyer Login
+import 'lawyer_login_screen.dart'; 
+import 'client_login_screen.dart'; // Added import for Client Login (LoginScreen)
 
 class LoginSelectionScreen extends StatelessWidget {
   const LoginSelectionScreen({super.key});
@@ -26,7 +27,7 @@ class LoginSelectionScreen extends StatelessWidget {
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
+                      color: Colors.black.withValues(alpha: 0.2),
                       blurRadius: 10,
                       offset: const Offset(0, 5),
                     ),
@@ -60,7 +61,7 @@ class LoginSelectionScreen extends StatelessWidget {
                 "Select your role to continue. The process will differ based on your selection.",
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.6),
+                  color: Colors.white.withValues(alpha: 0.6),
                   fontSize: 15,
                 ),
               ),
@@ -90,7 +91,7 @@ class LoginSelectionScreen extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 15),
                     child: Text(
                       "OR",
-                      style: TextStyle(color: Colors.white.withOpacity(0.4)),
+                      style: TextStyle(color: Colors.white.withValues(alpha: 0.4)),
                     ),
                   ),
                   const Expanded(child: Divider(color: Colors.white24)),

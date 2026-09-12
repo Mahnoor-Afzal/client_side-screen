@@ -30,6 +30,8 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
   late TabController _tabController;
   bool _isUploading = false;
   double _uploadProgress = 0;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -383,15 +385,46 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
         backgroundColor: navyBlue,
         title: const Text("Documents", style: TextStyle(color: gold, fontWeight: FontWeight.bold)),
         iconTheme: const IconThemeData(color: Colors.white),
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: gold,
-          unselectedLabelColor: Colors.white70,
-          indicatorColor: gold,
-          tabs: const [
-            Tab(text: "Received", icon: Icon(Icons.inbox)),
-            Tab(text: "Sent", icon: Icon(Icons.send)),
-          ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(110),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(15, 0, 15, 10),
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: (value) {
+                    setState(() {
+                      _searchQuery = value.toLowerCase();
+                    });
+                  },
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: "Search documents by name or sender...",
+                    hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+                    prefixIcon: const Icon(Icons.search, color: gold),
+                    filled: true,
+                    fillColor: Colors.white.withValues(alpha: 0.1),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                  ),
+                ),
+              ),
+              TabBar(
+                controller: _tabController,
+                labelColor: gold,
+                unselectedLabelColor: Colors.white70,
+                indicatorColor: gold,
+                tabs: const [
+                  Tab(text: "Received", icon: Icon(Icons.inbox)),
+                  Tab(text: "Sent", icon: Icon(Icons.send)),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -450,10 +483,23 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
           bool isMeSender = effectiveSenderId == uid || (data['senderType'] == 'client' && data['userId'] == uid && !isReceived);
 
           if (isReceived) {
-            return data['receiverId'] == uid || (!isMeSender && (data['userId'] == uid || data['clientId'] == uid));
+            if (!(data['receiverId'] == uid || (!isMeSender && (data['userId'] == uid || data['clientId'] == uid)))) {
+              return false;
+            }
           } else {
-            return isMeSender;
+            if (!isMeSender) return false;
           }
+
+          // Search Filter
+          if (_searchQuery.isNotEmpty) {
+            String title = (data['title'] ?? data['fileName'] ?? '').toString().toLowerCase();
+            String sender = (data['senderName'] ?? data['lawyerName'] ?? data['clientName'] ?? '').toString().toLowerCase();
+            if (!title.contains(_searchQuery) && !sender.contains(_searchQuery)) {
+              return false;
+            }
+          }
+
+          return true;
         }).toList();
 
         filteredDocs.sort((a, b) {

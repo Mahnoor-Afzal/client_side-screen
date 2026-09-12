@@ -5,8 +5,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'client_lawyer_profile_screen.dart';
 
-class MyLawyersScreen extends StatelessWidget {
+class MyLawyersScreen extends StatefulWidget {
   const MyLawyersScreen({super.key});
+
+  @override
+  State<MyLawyersScreen> createState() => _MyLawyersScreenState();
+}
+
+class _MyLawyersScreenState extends State<MyLawyersScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   String _safeString(dynamic value, {String defaultValue = ""}) {
     if (value == null) return defaultValue;
@@ -54,6 +62,33 @@ class MyLawyersScreen extends StatelessWidget {
         backgroundColor: navyBlue,
         title: const Text("My Lawyers", style: TextStyle(color: gold, fontWeight: FontWeight.bold)),
         iconTheme: const IconThemeData(color: gold),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(60),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(15, 0, 15, 10),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (value) {
+                setState(() {
+                  _searchQuery = value.toLowerCase();
+                });
+              },
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: "Search by lawyer name or specialization...",
+                hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+                prefixIcon: const Icon(Icons.search, color: gold),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.1),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(vertical: 0),
+              ),
+            ),
+          ),
+        ),
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
@@ -121,11 +156,22 @@ class MyLawyersScreen extends StatelessWidget {
                     return _buildEmptyState(navyBlue);
                   }
 
+                  final filteredLawyers = userSnapshot.data!.docs.where((doc) {
+                    final lawyer = doc.data() as Map<String, dynamic>;
+                    String name = _safeString(lawyer['fullName'] ?? lawyer['name'] ?? lawyer['organizationName']).toLowerCase();
+                    String spec = _safeString(lawyer['specialization']).toLowerCase();
+                    return _searchQuery.isEmpty || name.contains(_searchQuery) || spec.contains(_searchQuery);
+                  }).toList();
+
+                  if (filteredLawyers.isEmpty) {
+                    return _buildEmptyState(navyBlue);
+                  }
+
                   return ListView.builder(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 15),
-                    itemCount: userSnapshot.data!.docs.length,
+                    itemCount: filteredLawyers.length,
                     itemBuilder: (context, index) {
-                      var doc = userSnapshot.data!.docs[index];
+                      var doc = filteredLawyers[index];
                       var lawyer = doc.data() as Map<String, dynamic>;
                       String lawyerId = doc.id;
                       String status = lawyerStatuses[lawyerId] ?? 'Pending';

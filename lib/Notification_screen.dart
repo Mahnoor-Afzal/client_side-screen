@@ -5,7 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 
 // Adjust imports as per your actual file directory
-import 'case_requet_screen.dart';
+import 'case_request_screen.dart';
 import 'messages_list_screen.dart';
 import 'Hearing_details.dart';
 import 'documents_screen.dart';

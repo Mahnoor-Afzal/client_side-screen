@@ -226,7 +226,7 @@ class _PaymentVerificationScreenState extends State<PaymentVerificationScreen> {
                             hintText: "Enter TID",
                             hintStyle: const TextStyle(color: Colors.white24),
                             filled: true,
-                            fillColor: Colors.white.withOpacity(0.05),
+                            fillColor: Colors.white.withValues(alpha: 0.05),
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                             prefixIcon: Icon(Icons.receipt_long, color: goldColor),
                           ),
@@ -238,7 +238,7 @@ class _PaymentVerificationScreenState extends State<PaymentVerificationScreen> {
                             height: 180,
                             width: double.infinity,
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.05),
+                              color: Colors.white.withValues(alpha: 0.05),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(color: _selectedImageBytes != null ? goldColor : Colors.white10),
                             ),

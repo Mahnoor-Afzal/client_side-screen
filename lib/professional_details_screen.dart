@@ -75,7 +75,7 @@ class _ProfessionalDetailsScreenState extends State<ProfessionalDetailsScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
+                color: Colors.white.withValues(alpha: 0.05),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: DropdownButtonHideUnderline(
@@ -124,7 +124,7 @@ class _ProfessionalDetailsScreenState extends State<ProfessionalDetailsScreen> {
                   },
                   child: Container(
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.05),
+                      color: Colors.white.withValues(alpha: 0.05),
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: isSelected ? goldColor : Colors.transparent),
                     ),
@@ -147,7 +147,7 @@ class _ProfessionalDetailsScreenState extends State<ProfessionalDetailsScreen> {
               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
                 filled: true,
-                fillColor: Colors.white.withOpacity(0.05),
+                fillColor: Colors.white.withValues(alpha: 0.05),
                 hintText: "Briefly describe your legal experience...",
                 hintStyle: const TextStyle(color: Colors.white24),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
