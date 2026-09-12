@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CompilerConfiguration">
+    <bytecodeTargetLevel>
+      <module name="android.app" target="23" />
+      <module name="android.cloud_firestore" target="23" />
+      <module name="android.file_picker" target="23" />
+      <module name="android.firebase_auth" target="23" />
+      <module name="android.firebase_core" target="23" />
+      <module name="android.firebase_messaging" target="23" />
+      <module name="android.flutter_image_compress_common" target="23" />
+      <module name="android.flutter_local_notifications" target="23" />
+      <module name="android.flutter_plugin_android_lifecycle" target="23" />
+      <module name="android.image_cropper" target="23" />
+      <module name="android.image_picker_android" target="23" />
+      <module name="android.jni" target="23" />
+      <module name="android.jni_flutter" target="23" />
+      <module name="android.open_filex" target="23" />
+      <module name="android.permission_handler_android" target="23" />
+      <module name="android.printing" target="23" />
+      <module name="android.url_launcher_android" target="23" />
+      <module name="gradle" target="23" />
+      <module name="gradle.main" target="11" />
+      <module name="gradle.test" target="11" />
+    </bytecodeTargetLevel>
+  </component>
+</project>
