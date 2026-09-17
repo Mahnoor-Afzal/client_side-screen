@@ -8,9 +8,13 @@ import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'wakalatnama_form.dart';
+import 'client_notification_helper.dart';
 
-// HTML element download only for Web browser builds
-import 'dart:html' as html;
+// Cross-platform document download/open. The IO implementation (mobile/desktop)
+// streams to storage and opens natively via open_filex; the web implementation
+// triggers a browser download. The correct one is selected at compile time.
+import 'document_downloader_io.dart'
+    if (dart.library.html) 'document_downloader_web.dart' as downloader;
 
 class DocumentsScreen extends StatefulWidget {
   const DocumentsScreen({super.key});
@@ -193,9 +197,36 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
             'isDownloaded': true,
           });
 
+          // Send Notification to Client
+          String title = 'New Document Uploaded';
+          String body = 'Your lawyer has uploaded a new document: $fileName';
+
+          await FirebaseFirestore.instance.collection('notifications').add({
+            'receiverId': targetClientId,
+            'userId': targetClientId, // Added so client notifications screen can query it
+            'senderId': uid,
+            'title': title,
+            'body': body,
+            'type': 'document_upload',
+            'caseId': 'vault', // Generic vault upload
+            'isRead': false,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+
+          // Send Push Notification
+          await NotificationHelper.sendPushNotification(
+            targetClientId,
+            title,
+            body,
+            {
+              'type': 'document_upload',
+              'caseId': 'vault',
+            },
+          );
+
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("File Uploaded Successfully!"), backgroundColor: Colors.green),
+              const SnackBar(content: Text("File Uploaded Successfully & Client Notified!"), backgroundColor: Colors.green),
             );
           }
         }
@@ -231,57 +262,100 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
       return;
     }
 
-    try {
-      bool isDownloadedAlready = data['isDownloaded'] ?? false;
-      String senderType = (data['senderType'] ?? "").toString().toLowerCase();
+    bool isDownloadedAlready = data['isDownloaded'] ?? false;
+    String senderType = (data['senderType'] ?? "").toString().toLowerCase();
+    if (senderType == 'lawyer') {
+      isDownloadedAlready = true;
+    }
 
-      if (senderType == 'lawyer') {
-        isDownloadedAlready = true;
-      }
+    final String fileName = _buildFileName(data);
+    final ValueNotifier<double> progress = ValueNotifier<double>(0.0);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(isDownloadedAlready ? "Opening document..." : "Downloading file..."),
-            backgroundColor: Colors.blue,
-          ),
-        );
-      }
+    _showDownloadProgressDialog(progress, isOpening: isDownloadedAlready);
 
-      if (kIsWeb) {
-        if (!isDownloadedAlready) {
-          final response = await http.get(Uri.parse(targetUrl));
-          if (response.statusCode == 200) {
-            final blob = html.Blob([response.bodyBytes], 'application/pdf');
-            final url = html.Url.createObjectUrlFromBlob(blob);
-            html.AnchorElement(href: url)
-              ..setAttribute("download", "${data['fileName'] ?? 'Document'}.pdf")
-              ..click();
-            html.Url.revokeObjectUrl(url);
-          } else {
-            throw "Download failed";
-          }
-        } else {
-          html.window.open(targetUrl, '_blank');
-        }
-      } else {
-        final Uri uri = Uri.parse(targetUrl);
-        if (await canLaunchUrl(uri)) {
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-        }
-      }
+    final String? error = await downloader.downloadAndOpenDocument(
+      url: targetUrl,
+      fileName: fileName,
+      onProgress: (p) => progress.value = p.clamp(0.0, 1.0),
+    );
 
-      if (!isDownloadedAlready && senderType != 'lawyer') {
-        await FirebaseFirestore.instance.collection('documents').doc(docId).update({
-          'isDownloaded': true,
-        });
-      }
-    } catch (e) {
+    if (mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+    progress.dispose();
+
+    if (error != null) {
+      // Graceful fallback: hand off to the OS/browser to open the URL.
       final Uri uri = Uri.parse(targetUrl);
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Could not open document: $error"), backgroundColor: Colors.red),
+        );
       }
+      return;
     }
+
+    if (!isDownloadedAlready && senderType != 'lawyer') {
+      try {
+        await FirebaseFirestore.instance.collection('documents').doc(docId).update({
+          'isDownloaded': true,
+        });
+      } catch (_) {}
+    }
+  }
+
+  String _buildFileName(Map<String, dynamic> data) {
+    String name = (data['fileName'] ?? "").toString().trim();
+    if (name.isEmpty) {
+      final String type = (data['type'] ?? data['title'] ?? "Document").toString().trim();
+      name = type.isEmpty ? "Document" : type;
+    }
+    return name;
+  }
+
+  void _showDownloadProgressDialog(ValueNotifier<double> progress, {required bool isOpening}) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: navyBlue,
+          content: ValueListenableBuilder<double>(
+            valueListenable: progress,
+            builder: (context, value, _) {
+              final int percent = (value * 100).clamp(0, 100).round();
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isOpening ? "Opening document..." : "Downloading file...",
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      value: value <= 0 ? null : value,
+                      minHeight: 8,
+                      backgroundColor: Colors.white24,
+                      color: goldColor,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    value <= 0 ? "Please wait..." : "$percent%",
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
   }
 
   @override

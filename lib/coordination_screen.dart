@@ -4,9 +4,14 @@ import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:file_picker/file_picker.dart';
+import 'client_notification_helper.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher_string.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_filex/open_filex.dart';
+import 'dart:io';
+import 'package:http/http.dart' as http;
 
 const Color kNavyBlue = Color(0xFF101D3D);
 const Color kGoldColor = Color(0xFFC5A358);
@@ -69,43 +74,67 @@ Future<String?> uploadToCloudinary(PlatformFile file) async {
   }
 }
 
-// CROSS-PLATFORM DOWNLOAD HELPER
+// CROSS-PLATFORM DOWNLOAD & VIEW HELPER
 // ==========================================
 Future<void> downloadFile(BuildContext context, String fileUrl, String fileName) async {
   if (fileUrl.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("File URL is missing."),
-        backgroundColor: Colors.orange,
-      ),
+      const SnackBar(content: Text("File URL is missing."), backgroundColor: Colors.orange),
     );
     return;
   }
 
   try {
-    if (kIsWeb) {
-      final Uri uri = Uri.parse(fileUrl);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, webOnlyWindowName: '_blank');
-      }
-    } else {
-      if (await canLaunchUrlString(fileUrl)) {
-        await launchUrlString(fileUrl, mode: LaunchMode.externalApplication);
-      } else {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Could not launch file download link."), backgroundColor: Colors.red),
-          );
-        }
-      }
+    // 1. Get local path
+    final directory = await getApplicationDocumentsDirectory();
+    final safeFileName = fileName.replaceAll(RegExp(r'[^\w\s\.-]'), '_');
+    final filePath = "${directory.path}/$safeFileName";
+    final file = File(filePath);
+
+    // 2. Check if already exists
+    if (await file.exists()) {
+      await OpenFilex.open(filePath);
+      return;
     }
-  } catch (e) {
+
+    // 3. Download if not exists
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error downloading file: $e"), backgroundColor: Colors.red),
+        SnackBar(content: Text("Downloading $fileName..."), duration: const Duration(seconds: 1)),
+      );
+    }
+
+    final response = await http.get(Uri.parse(fileUrl));
+    if (response.statusCode == 200) {
+      await file.writeAsBytes(response.bodyBytes);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Download complete!"), backgroundColor: Colors.green),
+        );
+      }
+      await OpenFilex.open(filePath);
+    } else {
+      throw Exception("Failed to download file");
+    }
+  } catch (e) {
+    debugPrint("Download Error: $e");
+    // Fallback to URL launcher if download fails
+    if (await canLaunchUrlString(fileUrl)) {
+      await launchUrlString(fileUrl, mode: LaunchMode.externalApplication);
+    } else if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
       );
     }
   }
+}
+
+// Helper to check if file is already downloaded
+Future<bool> isFileDownloaded(String fileName) async {
+  final directory = await getApplicationDocumentsDirectory();
+  final safeFileName = fileName.replaceAll(RegExp(r'[^\w\s\.-]'), '_');
+  final file = File("${directory.path}/$safeFileName");
+  return await file.exists();
 }
 
 class CoordinationScreen extends StatefulWidget {
@@ -224,6 +253,7 @@ class _MyTeamsTab extends StatelessWidget {
           String clientName = (data['clientName'] ?? '').toString().toLowerCase();
           String caseId = (data['caseId'] ?? '').toString().toLowerCase();
 
+          // Show for Main Lawyer (Sender) OR Supporting Lawyer (Receiver/Team)
           bool isIncluded = senderId == uid || receiverId == uid;
 
           data.forEach((key, value) {
@@ -248,11 +278,29 @@ class _MyTeamsTab extends StatelessWidget {
             String caseId = data['caseId'] ?? '';
 
             return FutureBuilder<DocumentSnapshot>(
-              future: FirebaseFirestore.instance.collection('cases').doc(caseId).get(),
+              future: FirebaseFirestore.instance.collection('suit_a_file_request').doc(caseId).get(),
               builder: (context, caseSnapshot) {
                 Map<String, dynamic> caseData = {};
                 if (caseSnapshot.hasData && caseSnapshot.data!.exists) {
                   caseData = caseSnapshot.data!.data() as Map<String, dynamic>;
+                } else {
+                  // Fallback to 'cases' collection
+                  return FutureBuilder<DocumentSnapshot>(
+                    future: FirebaseFirestore.instance.collection('cases').doc(caseId).get(),
+                    builder: (context, fallbackSnap) {
+                      Map<String, dynamic> fallbackData = {};
+                      if (fallbackSnap.hasData && fallbackSnap.data!.exists) {
+                        fallbackData = fallbackSnap.data!.data() as Map<String, dynamic>;
+                      }
+                      fallbackData['clientName'] = fallbackData['clientName'] ?? data['clientName'];
+
+                      return CoordinationCard(
+                        caseId: caseId,
+                        data: fallbackData,
+                        currentUid: uid,
+                      );
+                    },
+                  );
                 }
                 caseData['clientName'] = caseData['clientName'] ?? data['clientName'];
 
@@ -1065,24 +1113,45 @@ class _CoordinatedCasesTab extends StatelessWidget {
                                 ),
                               ),
                               title: Row(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Expanded(
-                                    child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), overflow: TextOverflow.ellipsis),
+                                    flex: 2,
+                                    child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), overflow: TextOverflow.ellipsis),
                                   ),
                                   if (status.isNotEmpty)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(4)),
-                                      child: Text(status.toUpperCase(), style: const TextStyle(fontSize: 9, color: Colors.green, fontWeight: FontWeight.bold)),
+                                    Flexible(
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                        decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(4)),
+                                        child: Text(
+                                          status.toUpperCase(),
+                                          style: const TextStyle(fontSize: 8, color: Colors.green, fontWeight: FontWeight.bold),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
                                     ),
                                 ],
                               ),
                               subtitle: Text("From: $sender\nDate: $formattedDate", style: const TextStyle(fontSize: 11, color: Colors.grey)),
                               isThreeLine: true,
-                              trailing: IconButton(
-                                icon: const Icon(Icons.file_download, color: Colors.green),
-                                tooltip: "Download File",
-                                onPressed: () => downloadFile(context, url, title),
+                              trailing: FutureBuilder<bool>(
+                                future: isFileDownloaded(title),
+                                builder: (context, snapshot) {
+                                  bool exists = snapshot.data ?? false;
+                                  return IconButton(
+                                    icon: Icon(
+                                      exists ? Icons.visibility : Icons.file_download,
+                                      color: exists ? kNavyBlue : Colors.green,
+                                    ),
+                                    tooltip: exists ? "View Document" : "Download File",
+                                    onPressed: () async {
+                                      await downloadFile(context, url, title);
+                                      // Trigger rebuild to update icon
+                                      (context as Element).markNeedsBuild();
+                                    },
+                                  );
+                                },
                               ),
                             ),
                           );
@@ -1113,10 +1182,50 @@ class _CoordinatedCasesTab extends StatelessWidget {
     );
   }
 
+  Widget _buildResponsiveActionButton({
+    required double width,
+    required Color color,
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      width: width,
+      height: 36,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          padding: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          elevation: 1,
+        ),
+        onPressed: onPressed,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12),
+            const SizedBox(width: 2),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('coordination_requests').where('receiverId', isEqualTo: uid).where('status', isEqualTo: 'Accepted').snapshots(),
+      stream: FirebaseFirestore.instance.collection('coordination_requests').where('status', isEqualTo: 'Accepted').snapshots(),
       builder: (context, coordSnapshot) {
         if (coordSnapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
 
@@ -1124,7 +1233,16 @@ class _CoordinatedCasesTab extends StatelessWidget {
           return Center(child: Text(searchQuery.isEmpty ? "No coordinated cases found." : "No results for \"$searchQuery\"", style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)));
         }
 
-        List<String> acceptedCaseIds = coordSnapshot.data!.docs.map((doc) {
+        List<String> acceptedCaseIds = coordSnapshot.data!.docs.where((doc) {
+          var data = doc.data() as Map<String, dynamic>;
+          String senderId = (data['senderId'] ?? '').toString().trim();
+          String receiverId = (data['receiverId'] ?? '').toString().trim();
+          List users = data['users'] ?? [];
+
+          // Only show for Supporting Lawyers (Receiver or Team Member)
+          // AND exclude if the user is the Main Lawyer (Sender)
+          return (receiverId == uid || users.contains(uid)) && senderId != uid;
+        }).map((doc) {
           var data = doc.data() as Map<String, dynamic>;
           return (data['caseId'] ?? '').toString();
         }).where((id) => id.isNotEmpty).toList();
@@ -1134,15 +1252,13 @@ class _CoordinatedCasesTab extends StatelessWidget {
         }
 
         return StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance.collection('cases').snapshots(),
+          stream: FirebaseFirestore.instance.collection('suit_a_file_request').snapshots(),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
 
-            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-              return Center(child: Text(searchQuery.isEmpty ? "No coordinated cases found." : "No results for \"$searchQuery\"", style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)));
-            }
+            var caseDocs = snapshot.data?.docs ?? [];
 
-            var coordinatedCases = snapshot.data!.docs.where((doc) {
+            var coordinatedCases = caseDocs.where((doc) {
               if (!acceptedCaseIds.contains(doc.id)) return false;
               
               var data = doc.data() as Map<String, dynamic>;
@@ -1154,81 +1270,110 @@ class _CoordinatedCasesTab extends StatelessWidget {
             }).toList();
 
             if (coordinatedCases.isEmpty) {
-              return Center(child: Text(searchQuery.isEmpty ? "You have not been added as a supporting lawyer to any cases." : "No results for \"$searchQuery\"", style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)));
+              // Try fallback to 'cases' collection if not found in suit_a_file_request
+              return StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance.collection('cases').snapshots(),
+                builder: (context, fallbackSnapshot) {
+                  if (fallbackSnapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+                  
+                  var fallbackDocs = fallbackSnapshot.data?.docs ?? [];
+                  var fallbackCoordinated = fallbackDocs.where((doc) {
+                    if (!acceptedCaseIds.contains(doc.id)) return false;
+                    var data = doc.data() as Map<String, dynamic>;
+                    String clientName = (data['clientName'] ?? data['client_name'] ?? data['userName'] ?? "Client").toString().toLowerCase();
+                    return clientName.contains(searchQuery);
+                  }).toList();
+
+                  if (fallbackCoordinated.isEmpty) {
+                    return Center(child: Text(searchQuery.isEmpty ? "You have not been added as a supporting lawyer to any cases." : "No results for \"$searchQuery\"", style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)));
+                  }
+
+                  return _buildCaseList(fallbackCoordinated, context);
+                },
+              );
             }
 
-            return ListView.builder(
-              padding: const EdgeInsets.all(12),
-              itemCount: coordinatedCases.length,
-              itemBuilder: (context, index) {
-                var caseDoc = coordinatedCases[index];
-                var data = caseDoc.data() as Map<String, dynamic>;
-
-                String clientName = data['clientName'] ?? data['client_name'] ?? data['userName'] ?? "Client";
-                String caseType = data['caseType'] ?? data['category'] ?? "Assigned Case";
-                String leadName = data['leadLawyerName'] ?? data['lawyerName'] ?? "Lead Lawyer";
-
-                return Card(
-                  elevation: 3,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(clientName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: kNavyBlue)),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(color: kGoldColor.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
-                              child: const Text("Supporting Lawyer", style: TextStyle(color: kNavyBlue, fontWeight: FontWeight.bold, fontSize: 11)),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text("Type: $caseType", style: const TextStyle(color: Colors.grey, fontSize: 13)),
-                        Text("Main Lawyer: $leadName", style: const TextStyle(color: Colors.black87, fontSize: 12, fontWeight: FontWeight.w500)),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(backgroundColor: kNavyBlue, foregroundColor: Colors.white),
-                                onPressed: () => _showHearingsDialog(context, caseDoc.id, clientName),
-                                icon: const Icon(Icons.event, size: 16),
-                                label: const Text("Hearings", style: TextStyle(fontSize: 12)),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(backgroundColor: kGoldColor, foregroundColor: Colors.white),
-                                onPressed: () => _showDocumentsDialog(context, caseDoc.id, data),
-                                icon: const Icon(Icons.folder, size: 16),
-                                label: const Text("Docs", style: TextStyle(fontSize: 12)),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white),
-                                onPressed: () => _showUploadDialog(context, caseDoc.id, uid),
-                                icon: const Icon(Icons.cloud_upload, size: 16),
-                                label: const Text("Upload", style: TextStyle(fontSize: 12)),
-                              ),
-                            ),
-                          ],
-                        )
-                      ],
-                    ),
-                  ),
-                );
-              },
-            );
+            return _buildCaseList(coordinatedCases, context);
           },
+        );
+      },
+    );
+  }
+
+  Widget _buildCaseList(List<DocumentSnapshot> cases, BuildContext context) {
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: cases.length,
+      itemBuilder: (context, index) {
+        var caseDoc = cases[index];
+        var data = caseDoc.data() as Map<String, dynamic>;
+
+        String clientName = data['clientName'] ?? data['client_name'] ?? data['userName'] ?? "Client";
+        String caseType = data['caseType'] ?? data['category'] ?? "Assigned Case";
+        String leadName = data['leadLawyerName'] ?? data['lawyerName'] ?? "Lead Lawyer";
+
+        return Card(
+          elevation: 3,
+          margin: const EdgeInsets.only(bottom: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(clientName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: kNavyBlue)),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(color: kGoldColor.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
+                      child: const Text("Supporting Lawyer", style: TextStyle(color: kNavyBlue, fontWeight: FontWeight.bold, fontSize: 11)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text("Type: $caseType", style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                Text("Main Lawyer: $leadName", style: const TextStyle(color: Colors.black87, fontSize: 12, fontWeight: FontWeight.w500)),
+                const SizedBox(height: 12),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    double spacing = 4.0;
+                    double buttonWidth = (constraints.maxWidth - (spacing * 2)) / 3;
+
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _buildResponsiveActionButton(
+                          width: buttonWidth,
+                          color: kNavyBlue,
+                          icon: Icons.event,
+                          label: "Hearings",
+                          onPressed: () => _showHearingsDialog(context, caseDoc.id, clientName),
+                        ),
+                        SizedBox(width: spacing),
+                        _buildResponsiveActionButton(
+                          width: buttonWidth,
+                          color: kGoldColor,
+                          icon: Icons.folder,
+                          label: "Docs",
+                          onPressed: () => _showDocumentsDialog(context, caseDoc.id, data),
+                        ),
+                        SizedBox(width: spacing),
+                        _buildResponsiveActionButton(
+                          width: buttonWidth,
+                          color: Colors.teal,
+                          icon: Icons.cloud_upload,
+                          label: "Upload",
+                          onPressed: () => _showUploadDialog(context, caseDoc.id, uid),
+                        ),
+                      ],
+                    );
+                  },
+                )
+              ],
+            ),
+          ),
         );
       },
     );
@@ -1353,6 +1498,33 @@ class _SupportingLawyerUploadDialogState extends State<SupportingLawyerUploadDia
                     'receiverId': leadLawyerId,
                     'createdAt': FieldValue.serverTimestamp(),
                   });
+
+                  // 3. Send Notification to Client
+                  String title = 'New Case Document';
+                  String body = '$lawyerName has uploaded a new document: ${titleController.text.trim()}';
+
+                  await FirebaseFirestore.instance.collection('notifications').add({
+                    'receiverId': clientId,
+                    'userId': clientId, // Added so client notifications screen can query it
+                    'senderId': widget.uid,
+                    'title': title,
+                    'body': body,
+                    'type': 'document_upload',
+                    'caseId': widget.caseId,
+                    'isRead': false,
+                    'createdAt': FieldValue.serverTimestamp(),
+                  });
+
+                  // Send Push Notification
+                  await NotificationHelper.sendPushNotification(
+                    clientId,
+                    title,
+                    body,
+                    {
+                      'type': 'document_upload',
+                      'caseId': widget.caseId,
+                    },
+                  );
                 }
 
                 if (context.mounted) {
@@ -1391,30 +1563,53 @@ class _RequestsTab extends StatelessWidget {
   final String searchQuery;
   const _RequestsTab({required this.currentUid, required this.searchQuery});
 
-  Future<void> _handleRequest(BuildContext context, String reqId, String caseId, String senderId, bool accept) async {
+  Future<void> _handleRequest(BuildContext context, String reqId, String caseId, String senderId, String senderName, bool accept) async {
     try {
       if (accept) {
-        // 1. Update request status to 'Accepted'
+        // 1. Fetch Supporting Lawyer Information
+        var lawyerDoc = await FirebaseFirestore.instance.collection('verified_lawyers').doc(currentUid).get();
+        String supportingLawyerName = lawyerDoc.data()?['fullName'] ?? lawyerDoc.data()?['name'] ?? "Supporting Lawyer";
+
+        // 2. Update coordination_requests status to 'Accepted'
         await FirebaseFirestore.instance.collection('coordination_requests').doc(reqId).update({
           'status': 'Accepted',
-          'assignedLawyers': FieldValue.arrayUnion([currentUid, senderId])
+          'assignedLawyers': FieldValue.arrayUnion([currentUid, senderId]),
+          'supportingLawyerName': supportingLawyerName,
         });
 
-        // 2. Fetch Client ID from 'suit_a_file_request' or 'cases' to add to team chat
-        var caseDoc = await FirebaseFirestore.instance.collection('suit_a_file_request').doc(caseId).get();
-        String? clientId;
-
-        if (caseDoc.exists) {
-          clientId = caseDoc.data()?['clientId'] ?? caseDoc.data()?['userId'] ?? caseDoc.data()?['created_by'];
-        } else {
-          // Try fallback to 'cases' collection
-          var fallbackDoc = await FirebaseFirestore.instance.collection('cases').doc(caseId).get();
-          if (fallbackDoc.exists) {
-            clientId = fallbackDoc.data()?['created_by'] ?? fallbackDoc.data()?['clientId'];
-          }
+        // 3. Sync Lawyer Information to 'suit_a_file_request' and 'cases'
+        // This ensures both the Lead Lawyer and Client can see who is supporting the case.
+        var suitRef = FirebaseFirestore.instance.collection('suit_a_file_request').doc(caseId);
+        var suitSnap = await suitRef.get();
+        if (suitSnap.exists) {
+          await suitRef.update({
+            'assignedLawyers': FieldValue.arrayUnion([currentUid]),
+            'supportingLawyerId': currentUid,
+            'supportingLawyerName': supportingLawyerName,
+            'teamNames': FieldValue.arrayUnion([supportingLawyerName]),
+          });
         }
 
-        // 3. Add Client to the 'users' array so they can see the Team Chat now
+        var caseRef = FirebaseFirestore.instance.collection('cases').doc(caseId);
+        var caseSnap = await caseRef.get();
+        if (caseSnap.exists) {
+          await caseRef.update({
+            'assignedLawyers': FieldValue.arrayUnion([currentUid]),
+            'supportingLawyerId': currentUid,
+            'supportingLawyerName': supportingLawyerName,
+            'teamNames': FieldValue.arrayUnion([supportingLawyerName]),
+          });
+        }
+
+        // 4. Fetch Client ID from 'suit_a_file_request' or 'cases' to add to team chat
+        String? clientId;
+        if (suitSnap.exists) {
+          clientId = suitSnap.data()?['clientId'] ?? suitSnap.data()?['userId'] ?? suitSnap.data()?['created_by'];
+        } else if (caseSnap.exists) {
+          clientId = caseSnap.data()?['created_by'] ?? caseSnap.data()?['clientId'];
+        }
+
+        // 5. Add Client to the 'users' array so they can see the Team Chat now
         if (clientId != null && clientId.isNotEmpty) {
           await FirebaseFirestore.instance.collection('coordination_requests').doc(reqId).update({
             'users': FieldValue.arrayUnion([clientId])
@@ -1431,7 +1626,51 @@ class _RequestsTab extends StatelessWidget {
               'users': FieldValue.arrayUnion([clientId, currentUid, senderId])
             });
           }
+
+          // 4. Send Notification to Client about Team Chat / Coordination
+          String clientTitle = 'Case Team Formed';
+          String clientBody = '$senderName has added a supporting lawyer to your case. Communication is now active in Team Chat.';
+
+          await FirebaseFirestore.instance.collection('notifications').add({
+            'receiverId': clientId,
+            'senderId': currentUid,
+            'title': clientTitle,
+            'body': clientBody,
+            'type': 'team_chat_active',
+            'caseId': caseId,
+            'isRead': false,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+
+          await NotificationHelper.sendPushNotification(
+            clientId,
+            clientTitle,
+            clientBody,
+            {'type': 'team_chat_active', 'caseId': caseId},
+          );
         }
+
+        // 5. Also notify the Main Lawyer (Sender) that the Supporting Lawyer accepted
+        String mainLawyerTitle = 'Coordination Request Accepted';
+        String mainLawyerBody = 'A lawyer has accepted your coordination request for case: $caseId';
+
+        await FirebaseFirestore.instance.collection('notifications').add({
+          'receiverId': senderId,
+          'senderId': currentUid,
+          'title': mainLawyerTitle,
+          'body': mainLawyerBody,
+          'type': 'coordination_accepted',
+          'caseId': caseId,
+          'isRead': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+
+        await NotificationHelper.sendPushNotification(
+          senderId,
+          mainLawyerTitle,
+          mainLawyerBody,
+          {'type': 'coordination_accepted', 'caseId': caseId},
+        );
 
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1546,7 +1785,7 @@ class _RequestsTab extends StatelessWidget {
                           Expanded(
                             child: ElevatedButton.icon(
                               style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-                              onPressed: () => _handleRequest(context, reqId, caseId, senderId, true),
+                              onPressed: () => _handleRequest(context, reqId, caseId, senderId, senderName, true),
                               icon: const Icon(Icons.check, size: 18),
                               label: const Text("Accept"),
                             ),
@@ -1555,7 +1794,7 @@ class _RequestsTab extends StatelessWidget {
                           Expanded(
                             child: OutlinedButton.icon(
                               style: OutlinedButton.styleFrom(foregroundColor: Colors.red, side: const BorderSide(color: Colors.red)),
-                              onPressed: () => _handleRequest(context, reqId, caseId, senderId, false),
+                              onPressed: () => _handleRequest(context, reqId, caseId, senderId, senderName, false),
                               icon: const Icon(Icons.close, size: 18),
                               label: const Text("Decline"),
                             ),
@@ -1862,10 +2101,23 @@ class CoordinationCard extends StatelessWidget {
                                   "${fileName.isNotEmpty ? 'File: $fileName\n' : ''}${notes.isNotEmpty ? 'Notes: $notes' : ''}",
                                   style: const TextStyle(fontSize: 12),
                                 ),
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.file_download, color: Colors.green),
-                                  tooltip: "Download File",
-                                  onPressed: () => downloadFile(context, fileUrl, title),
+                                trailing: FutureBuilder<bool>(
+                                  future: isFileDownloaded(title),
+                                  builder: (context, snapshot) {
+                                    bool exists = snapshot.data ?? false;
+                                    return IconButton(
+                                      icon: Icon(
+                                        exists ? Icons.visibility : Icons.file_download,
+                                        color: exists ? kNavyBlue : Colors.green,
+                                      ),
+                                      tooltip: exists ? "View Document" : "Download File",
+                                      onPressed: () async {
+                                        await downloadFile(context, fileUrl, title);
+                                        // Force rebuild to update icon
+                                        (context as Element).markNeedsBuild();
+                                      },
+                                    );
+                                  },
                                 ),
                               ),
                             );

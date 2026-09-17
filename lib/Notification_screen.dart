@@ -27,14 +27,17 @@ Stream<int> getTotalUnreadNotificationsCount(String currentUid) {
     controller.add(total);
   }
 
-  // 1. Notifications collection se unread count
+  // 1. Notifications collection - Standardized check for all recipient fields
   final sub1 = FirebaseFirestore.instance
       .collection('notifications')
-      .where('userId', isEqualTo: currentUid)
-      .where('isRead', isEqualTo: false)
       .snapshots()
       .listen((snapshot) {
-    rawNotifUnread = snapshot.docs.length;
+    rawNotifUnread = snapshot.docs.where((doc) {
+      var d = doc.data();
+      bool isRead = d['isRead'] ?? false;
+      String receiver = (d['userId'] ?? d['receiverId'] ?? d['lawyerId'] ?? d['toId'] ?? '').toString().trim();
+      return receiver == currentUid && !isRead;
+    }).length;
     calculateTotal();
   });
 
@@ -261,8 +264,13 @@ class _NotificationScreenState extends State<NotificationScreen> {
       controller.add(combined);
     }
 
-    final sub1 = FirebaseFirestore.instance.collection('notifications').where('userId', isEqualTo: currentUid).snapshots().listen((snap) {
-      rawNotifList = snap.docs.map((doc) => {...doc.data(), 'docId': doc.id, 'source': 'notifications_col'}).toList();
+    // Updated to handle all recipient field variants to prevent "phantom" unread counts
+    final sub1 = FirebaseFirestore.instance.collection('notifications').snapshots().listen((snap) {
+      rawNotifList = snap.docs.where((doc) {
+        var data = doc.data();
+        String receiver = (data['userId'] ?? data['receiverId'] ?? data['lawyerId'] ?? data['toId'] ?? '').toString().trim();
+        return receiver == currentUid;
+      }).map((doc) => {...doc.data(), 'docId': doc.id, 'source': 'notifications_col'}).toList();
       emitCombined();
     });
 
@@ -463,9 +471,14 @@ class _NotificationScreenState extends State<NotificationScreen> {
     if (currentUid == null) return;
     WriteBatch batch = FirebaseFirestore.instance.batch();
 
-    var notifs = await FirebaseFirestore.instance.collection('notifications').where('userId', isEqualTo: currentUid).where('isRead', isEqualTo: false).get();
+    // Mark all notifications for this user as read across all field variants
+    var notifs = await FirebaseFirestore.instance.collection('notifications').get();
     for (var doc in notifs.docs) {
-      batch.update(doc.reference, {'isRead': true});
+      var data = doc.data();
+      String receiver = (data['userId'] ?? data['receiverId'] ?? data['lawyerId'] ?? data['toId'] ?? '').toString().trim();
+      if (receiver == currentUid && data['isRead'] != true) {
+        batch.update(doc.reference, {'isRead': true});
+      }
     }
 
     for (var col in ['Case request', 'suit_a_file_request']) {

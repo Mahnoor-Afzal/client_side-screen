@@ -5,49 +5,64 @@ class FinalSplashScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: Color(0xFF0F172A), // Dark navy background
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // --- LOGO SECTION ---
-            Icon(
-              Icons.gavel_rounded,
-              size: 80,
-              color: Colors.amber,
-            ),
-            SizedBox(height: 30),
+    // Get screen dimensions for responsiveness
+    final size = MediaQuery.of(context).size;
+    final width = size.width;
+    final height = size.height;
 
-            // --- APP NAME ---
-            Text(
-              "SMART LEGAL ASSISTANT",
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.5,
-              ),
-            ),
-            SizedBox(height: 10),
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F172A), // Dark navy background
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // --- LOGO SECTION ---
+                Icon(
+                  Icons.gavel_rounded,
+                  size: width * 0.25, // Logo size relative to screen width
+                  color: Colors.amber,
+                ),
+                SizedBox(height: height * 0.04),
 
-            Text(
-              "Your Digital Legal Partner",
-              style: TextStyle(
-                color: Colors.white70,
-                fontSize: 14,
-                fontStyle: FontStyle.italic,
-              ),
-            ),
+                // --- APP NAME ---
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    "SMART LEGAL ASSISTANT",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: width * 0.065, // Responsive font size
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                ),
+                SizedBox(height: height * 0.015),
 
-            SizedBox(height: 60),
+                Text(
+                  "Your Digital Legal Partner",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: width * 0.035, // Responsive font size
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
 
-            // --- LOADING INDICATOR ---
-            CircularProgressIndicator(
-              strokeWidth: 3,
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.amber),
+                SizedBox(height: height * 0.08),
+
+                // --- LOADING INDICATOR ---
+                const CircularProgressIndicator(
+                  strokeWidth: 3,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.amber),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

@@ -16,7 +16,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   bool _isLoading = false;
 
   // IMPORTANT: Replace with your actual OpenRouter API Key
-  final String _apiKey = "YOUR_OPENROUTER_API_KEY";
+  final String _apiKey = "apk key dalni hai";
 
   final String systemPrompt = """
 You are an AI Legal Assistant in the Smart Legal Assistant App.
@@ -97,21 +97,22 @@ JSON Response Format (for out-of-scope):
         }
 
         if (decodedData != null) {
-          if (decodedData['is_legal'] == false) {
+          final Map<String, dynamic> responseData = decodedData;
+          if (responseData['is_legal'] == false) {
             setState(() {
               _messages.add({
                 "role": "ai_text",
-                "content": decodedData!['message'] ?? "I'm sorry, I can only assist with legal-related queries."
+                "content": responseData['message'] ?? "I'm sorry, I can only assist with legal-related queries."
               });
             });
           } else {
             // Ensure all required fields exist for the AI card to avoid crashes
             final requiredFields = ['case_type', 'category', 'best_lawyer', 'reason', 'priority_level', 'next_step'];
             for (var field in requiredFields) {
-              decodedData![field] ??= "Not specified";
+              responseData[field] ??= "Not specified";
             }
             setState(() {
-              _messages.add({"role": "ai", "content": decodedData});
+              _messages.add({"role": "ai", "content": responseData});
             });
           }
         } else {

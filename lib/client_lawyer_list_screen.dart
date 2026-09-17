@@ -405,102 +405,120 @@ class _LawyerListScreenState extends State<LawyerListScreen> {
                         : null,
                     ),
                   ),
-                  const SizedBox(width: 15),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Flexible(
-                              child: Text(
-                                name,
-                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: navyBlue),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            const Icon(Icons.verified, color: Colors.blue, size: 18),
-                          ],
-                        ),
-                        Text(spec, style: const TextStyle(color: accentGold, fontWeight: FontWeight.w600, fontSize: 14)),
-                        const SizedBox(height: 4),
-                        Text(org, style: const TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.w500)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    _buildInfoChip(Icons.gavel, license),
-                    const SizedBox(width: 8),
-                    _buildInfoChip(Icons.location_on, province),
-                    const SizedBox(width: 8),
-                    _buildInfoChip(Icons.history, "$exp Years Exp"),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    const Icon(Icons.star, color: Colors.amber, size: 20),
-                    const SizedBox(width: 4),
-                    Text(
-                      rating.toStringAsFixed(1),
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    Text(
-                      " ($reviewCount Engaged Clients)",
-                      style: const TextStyle(color: Colors.grey, fontSize: 13),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  description,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: Colors.black87.withValues(alpha: 0.7), fontSize: 13, height: 1.4),
-                ),
-                const Divider(height: 30),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => _handleRequest(lawyerId, name, "Consultation"),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: accentGold,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          elevation: 0,
-                        ),
-                        child: const Text("Consultation", style: TextStyle(fontWeight: FontWeight.bold)),
-                      ),
-                    ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => _handleRequest(lawyerId, name, "File a Suit"),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: navyBlue,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          elevation: 0,
-                        ),
-                        child: const Text("File a Suit", style: TextStyle(fontWeight: FontWeight.bold)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  name,
+                                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: navyBlue),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              const Icon(Icons.verified, color: Colors.blue, size: 18),
+                            ],
+                          ),
+                          Text(
+                            spec, 
+                            style: const TextStyle(color: accentGold, fontWeight: FontWeight.w600, fontSize: 14),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            org, 
+                            style: const TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.w500),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildInfoChip(Icons.gavel, license),
+                      _buildInfoChip(Icons.location_on, province),
+                      _buildInfoChip(Icons.history, "$exp Years Exp"),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(Icons.star, color: Colors.amber, size: 20),
+                      const SizedBox(width: 4),
+                      Text(
+                        rating.toStringAsFixed(1),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      Flexible(
+                        child: Text(
+                          " ($reviewCount Engaged Clients)",
+                          style: const TextStyle(color: Colors.grey, fontSize: 13),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    description,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Colors.black87.withValues(alpha: 0.7), fontSize: 13, height: 1.4),
+                  ),
+                  const Divider(height: 30),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _handleRequest(lawyerId, name, "Consultation"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: accentGold,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            elevation: 0,
+                          ),
+                          child: const FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text("Consultation", style: TextStyle(fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _handleRequest(lawyerId, name, "File a Suit"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: navyBlue,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            elevation: 0,
+                          ),
+                          child: const FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text("File a Suit", style: TextStyle(fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 const SizedBox(height: 8),
                 SizedBox(
                   width: double.infinity,
@@ -537,7 +555,13 @@ class _LawyerListScreenState extends State<LawyerListScreen> {
         children: [
           Icon(icon, size: 14, color: navyBlue),
           const SizedBox(width: 4),
-          Text(label, style: const TextStyle(fontSize: 12, color: navyBlue, fontWeight: FontWeight.w500)),
+          Flexible(
+            child: Text(
+              label, 
+              style: const TextStyle(fontSize: 12, color: navyBlue, fontWeight: FontWeight.w500),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
     );
@@ -596,6 +620,10 @@ class _LawyerListScreenState extends State<LawyerListScreen> {
         'lawyerName': lawyerName,
         'type': type,
         'aiAnalysis': widget.aiAnalysis,
+        // Standardized schema so chatbot-generated requests are identical to
+        // manually-created ones (team coordination, search, chat all resolve).
+        'assignedLawyers': <String>[],
+        'teamNames': <String>[],
         'isDirectRequest': true, // It is direct because client chose this specific lawyer
       };
 
@@ -603,6 +631,17 @@ class _LawyerListScreenState extends State<LawyerListScreen> {
       if (widget.pendingCaseData != null) {
         requestData.addAll(widget.pendingCaseData!);
       }
+
+      // Guarantee uniform category keys. Derive from the AI analysis when the
+      // request originated from the chatbot, otherwise fall back to empty.
+      if (widget.aiAnalysis != null) {
+        requestData.putIfAbsent(
+            'caseCategory', () => (widget.aiAnalysis!['category'] ?? '').toString());
+        requestData.putIfAbsent(
+            'subCategory', () => (widget.aiAnalysis!['case_type'] ?? '').toString());
+      }
+      requestData.putIfAbsent('caseCategory', () => '');
+      requestData.putIfAbsent('subCategory', () => '');
 
       DocumentReference requestRef = await FirebaseFirestore.instance
           .collection(collectionName)

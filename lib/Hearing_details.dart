@@ -395,7 +395,7 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Hearing details saved in Hearings and notification sent to client!'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Hearing details sent to client!'), backgroundColor: Colors.green),
         );
         Navigator.pop(context);
       }
@@ -466,9 +466,23 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
+      // 4. Send Notification to Client
+      if (_resolvedClientId != null && _resolvedClientId!.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('notifications').add({
+          'receiverId': _resolvedClientId,
+          'senderId': uid,
+          'title': 'Hearing Update Synced',
+          'body': 'Your hearing for case #${_caseNumberController.text.trim()} has been updated to ${_dateController.text} at ${_timeController.text}.',
+          'type': 'hearing_update',
+          'caseId': widget.caseId,
+          'isRead': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Scraped hearing details and history saved successfully!'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Scraped hearing details saved and notification sent!'), backgroundColor: Colors.green),
         );
         Navigator.pop(context);
       }
@@ -533,7 +547,7 @@ class _HearingDetailsScreenState extends State<HearingDetailsScreen> with Automa
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              isDone ? "Status: Hearing Details Synced / Ready" : "Status: Pending Scraper (Searching cause list...)",
+              isDone ? "Status: Hearing Details Synced / Ready" : "Please Wait",
               style: TextStyle(color: isDone ? Colors.green : Colors.orange, fontSize: 12, fontWeight: FontWeight.bold),
             ),
           ),

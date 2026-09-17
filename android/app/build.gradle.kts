@@ -6,12 +6,14 @@ plugins {
 }
 
 android {
-    namespace = "com.example.first_project"
+    namespace = "com.example.untitled"
     compileSdk = 36
     
     buildToolsVersion = "35.0.0"
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -21,7 +23,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.first_project"
+        applicationId = "com.example.untitled"
         minSdk = flutter.minSdkVersion
         targetSdk = 36
         versionCode = flutter.versionCode
@@ -40,4 +42,8 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

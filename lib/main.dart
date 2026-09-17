@@ -6,7 +6,6 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'dart:async';
-
 import 'firebase_options.dart';
 import 'client_login_screen.dart';
 import 'client_dashboard.dart';
@@ -15,6 +14,7 @@ import 'lawyer_login_screen.dart';
 import 'Lawyer_dashboard.dart';
 import 'signup_screen.dart';
 import 'login_selection_screen.dart';
+import 'lawyer_pending_screen.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
@@ -188,6 +188,15 @@ class _AuthWrapperState extends State<AuthWrapper> {
                         return const FinalSplashScreen();
                       }
                       if (pendingSnapshot.hasData && pendingSnapshot.data!.exists) {
+                        var lawyerData = pendingSnapshot.data!.data() as Map<String, dynamic>? ?? {};
+                        String paymentStatus = lawyerData['paymentStatus'] ?? 'Unpaid';
+                        bool isApproved = lawyerData['isApproved'] == true;
+
+                        // Agar payment submitted hai aur admin ne approve nahi kiya to pending screen dikhayein
+                        if (paymentStatus == 'Submitted' && !isApproved) {
+                          return const LawyerPendingScreen();
+                        }
+
                         return const LawyerDashboard();
                       }
                       

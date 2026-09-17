@@ -56,6 +56,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
           msg = e.message ?? "Error";
         }
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.redAccent));
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Firestore Error: ${e.toString()}"), backgroundColor: Colors.redAccent));
       } finally {
         if (mounted) setState(() => _isLoading = false);
       }

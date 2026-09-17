@@ -166,8 +166,18 @@ class _ActiveCasesScreenState extends State<ActiveCasesScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: navyBlue, fontSize: 18)),
-                            Text(type, style: const TextStyle(fontSize: 13, color: Colors.black54)),
+                            Text(
+                              name,
+                              style: TextStyle(fontWeight: FontWeight.bold, color: navyBlue, fontSize: 18),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              type,
+                              style: const TextStyle(fontSize: 13, color: Colors.black54),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                             const SizedBox(height: 4),
                             InkWell(
                               onTap: () {
@@ -185,9 +195,15 @@ class _ActiveCasesScreenState extends State<ActiveCasesScreen> {
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Text("Case ID: $id", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: navyBlue)),
+                                    Flexible(
+                                      child: Text(
+                                        "Case ID: $id",
+                                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: navyBlue),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
                                     const SizedBox(width: 4),
-                                    Icon(Icons.copy_rounded, size: 12, color: navyBlue),
+                                    Icon(Icons.copy_rounded, size: 10, color: navyBlue),
                                   ],
                                 ),
                               ),
@@ -240,23 +256,30 @@ class _ActiveCasesScreenState extends State<ActiveCasesScreen> {
               },
             ),
             const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Divider(height: 1)),
-            Wrap(
-              spacing: 8,
-              runSpacing: 10,
-              children: [
-                _buildActionChip(context, Icons.chat_outlined, "Chat", Colors.blue, () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => ChatScreen(consultationId: id, clientName: name, clientId: clientId)));
-                }),
-                _buildActionChip(context, Icons.gavel, "Hearings", goldColor, () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => HearingDetailsScreen(caseId: id, clientName: name, clientId: clientId)));
-                }),
-                _buildActionChip(context, Icons.assignment_outlined, "Vakalatnama", Colors.teal, () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => WakalatnamaForm(clientId: clientId, clientName: name, requestId: id)));
-                }),
-                _buildActionChip(context, Icons.check_circle_outline, "Close Case", Colors.red, () {
-                  _showCloseCaseDialog(context, id);
-                }),
-              ],
+            LayoutBuilder(
+              builder: (context, constraints) {
+                double spacing = 8.0;
+                double chipWidth = (constraints.maxWidth - spacing) / 2;
+
+                return Wrap(
+                  spacing: spacing,
+                  runSpacing: 10,
+                  children: [
+                    _buildActionChip(context, Icons.chat_outlined, "Chat", Colors.blue, chipWidth, () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => ChatScreen(consultationId: id, clientName: name, clientId: clientId)));
+                    }),
+                    _buildActionChip(context, Icons.gavel, "Hearings", goldColor, chipWidth, () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => HearingDetailsScreen(caseId: id, clientName: name, clientId: clientId)));
+                    }),
+                    _buildActionChip(context, Icons.assignment_outlined, "Vakalatnama", Colors.teal, chipWidth, () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => WakalatnamaForm(clientId: clientId, clientName: name, requestId: id)));
+                    }),
+                    _buildActionChip(context, Icons.check_circle_outline, "Close Case", Colors.red, chipWidth, () {
+                      _showCloseCaseDialog(context, id);
+                    }),
+                  ],
+                );
+              },
             )
           ],
         ),
@@ -381,11 +404,12 @@ class _ActiveCasesScreenState extends State<ActiveCasesScreen> {
     );
   }
 
-  Widget _buildActionChip(BuildContext context, IconData icon, String label, Color color, VoidCallback onTap) {
+  Widget _buildActionChip(BuildContext context, IconData icon, String label, Color color, double width, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       child: Container(
+        width: width,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.1),
@@ -393,11 +417,18 @@ class _ActiveCasesScreenState extends State<ActiveCasesScreen> {
           border: Border.all(color: color.withValues(alpha: 0.3)),
         ),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, color: color, size: 16),
             const SizedBox(width: 6),
-            Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+            Flexible(
+              child: Text(
+                label,
+                style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
       ),

@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:signature/signature.dart';
+import 'client_notification_helper.dart';
 import 'package:http/http.dart' as http;
 
 class WakalatnamaForm extends StatefulWidget {
@@ -343,19 +344,36 @@ class _WakalatnamaFormState extends State<WakalatnamaForm> {
         'timestamp': FieldValue.serverTimestamp(),
       });
 
+      String title = 'Vakalatnama Signature Required';
+      String body = 'Your lawyer has sent Vakalatnama. Please enter your password to sign and accept.';
+
       await FirebaseFirestore.instance.collection('notifications').add({
         'userId': _resolvedClientId,
         'receiverId': _resolvedClientId,
         'senderId': uid,
         'docId': docRef.id,
         'caseId': widget.requestId ?? "",
-        'title': 'Vakalatnama Signature Required',
-        'body': 'Your lawyer has sent Vakalatnama. Please enter your password to sign and accept.',
+        'title': title,
+        'body': body,
         'type': 'vakalatnama',
         'action': 'sign_vakalatnama',
         'timestamp': FieldValue.serverTimestamp(),
         'isRead': false,
       });
+
+      // Send Push Notification
+      if (_resolvedClientId != null) {
+        await NotificationHelper.sendPushNotification(
+          _resolvedClientId!,
+          title,
+          body,
+          {
+            'type': 'vakalatnama',
+            'docId': docRef.id,
+            'caseId': widget.requestId ?? "",
+          },
+        );
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

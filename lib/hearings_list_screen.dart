@@ -13,8 +13,8 @@ class HearingsListScreen extends StatefulWidget {
 class _HearingsListScreenState extends State<HearingsListScreen> {
   final Color navyBlue = const Color(0xFF101D3D);
   final Color goldColor = const Color(0xFFC5A358);
-  String searchQuery = "";
   final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = "";
 
   @override
   void dispose() {
@@ -32,7 +32,7 @@ class _HearingsListScreenState extends State<HearingsListScreen> {
     return dateVal.toString();
   }
 
-  // Hearing History Bottom Sheet (Fetches history from Hearings -> caseId -> history subcollection)
+  // Hearing History Bottom Sheet
   void _showHearingHistory(BuildContext context, String caseId, String clientName) {
     showModalBottomSheet(
       context: context,
@@ -94,7 +94,7 @@ class _HearingsListScreenState extends State<HearingsListScreen> {
                         String historyDesc = (hData['hearingDescription'] ?? hData['description'] ?? '').toString();
 
                         return Card(
-                          color: Colors.white.withValues(alpha: 0.1),
+                          color: Colors.white.withOpacity(0.1),
                           margin: const EdgeInsets.only(bottom: 10),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           child: ListTile(
@@ -145,193 +145,165 @@ class _HearingsListScreenState extends State<HearingsListScreen> {
         backgroundColor: navyBlue,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: uid == null
-          ? const Center(child: Text("Please login to see hearings"))
-          : Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: TextField(
-                    controller: _searchController,
-                    onChanged: (value) {
-                      setState(() {
-                        searchQuery = value.toLowerCase();
-                      });
-                    },
-                    decoration: InputDecoration(
-                      hintText: "Search by client name or court location...",
-                      prefixIcon: const Icon(Icons.search),
-                      filled: true,
-                      fillColor: Colors.white,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide.none,
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                    ),
-                  ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (value) {
+                setState(() {
+                  _searchQuery = value.toLowerCase();
+                });
+              },
+              decoration: InputDecoration(
+                hintText: "Search by client or case number...",
+                prefixIcon: Icon(Icons.search, color: navyBlue),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
                 ),
-                Expanded(
-                  child: StreamBuilder<QuerySnapshot>(
-                    stream: FirebaseFirestore.instance.collection('Hearings').snapshots(),
-                    builder: (context, snapshot) {
-                      var docs = snapshot.data?.docs.where((doc) {
-                        var data = doc.data() as Map<String, dynamic>;
-                        String lId = (data['lawyerid'] ?? data['lawyerId'] ?? "").toString().trim();
-
-                        // Check Lawyer Assignment for Hearings collection
-                        bool isAssigned = lId == uid.toString().trim();
-
-                        // Check if explicitly saved or has status Manual/Active
-                        bool isSaved = data['isSaved'] == true || data['status'] == 'Manual' || data['status'] == 'Active';
-
-                        if (!isAssigned || !isSaved) return false;
-
-                        // Search Filter
-                        String clientName = (data['clientName'] ?? data['client_name'] ?? "").toString().toLowerCase();
-                        String courtName = (data['courtName'] ?? "").toString().toLowerCase();
-                        String district = (data['district'] ?? "").toString().toLowerCase();
-                        String courtLocation = (data['courtLocation'] ?? data['court_location'] ?? "").toString().toLowerCase();
-
-                        return clientName.contains(searchQuery) ||
-                            courtName.contains(searchQuery) ||
-                            district.contains(searchQuery) ||
-                            courtLocation.contains(searchQuery);
-                      }).toList() ?? [];
-
-                      if (docs.isEmpty && snapshot.connectionState != ConnectionState.waiting) {
-                        return Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.event_note, size: 80, color: navyBlue.withValues(alpha: 0.3)),
-                              const SizedBox(height: 15),
-                              Text(
-                                searchQuery.isEmpty ? "No saved scheduled hearings found." : "No results for \"$searchQuery\"",
-                                style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
-                              ),
-                            ],
-                          ),
-                        );
-                      }
-
-                      if (docs.isEmpty && snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-
-                      return ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        itemCount: docs.length,
-                        itemBuilder: (context, index) {
-                          var doc = docs[index];
-                          Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-
-                          String clientName = data['clientName'] ?? data['client_name'] ?? "Client Name";
-
-                          // Safe parsing for main list hearing date from Hearings collection
-                          String hearingDate = _safeFormatDate(data['hearingDate'] ?? data['hearing_date'] ?? data['date']);
-                          String hearingTime = (data['hearingTime'] ?? data['hearing_time'] ?? "N/A").toString();
-
-                          // Formatting court location safely
-                          String courtName = (data['courtName'] ?? "").toString();
-                          String district = (data['district'] ?? "").toString();
-                          String courtLocation = data['courtLocation'] ?? data['court_location'] ??
-                              (courtName.isNotEmpty ? "$courtName${district.isNotEmpty ? ', $district' : ''}" : "Not Set");
-
-                          return Card(
-                            elevation: 4,
-                            margin: const EdgeInsets.only(bottom: 15),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Expanded(
-                                        child: Text(clientName,
-                                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: navyBlue)),
-                                      ),
-
-                                      InkWell(
-                                        onTap: () => _showHearingHistory(context, doc.id, clientName),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            color: goldColor.withValues(alpha: 0.2),
-                                            borderRadius: BorderRadius.circular(10),
-                                            border: Border.all(color: goldColor),
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              Icon(Icons.history, size: 14, color: navyBlue),
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                "History",
-                                                style: TextStyle(
-                                                    color: navyBlue,
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.bold
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 5),
-                                  Text("Date: $hearingDate",
-                                      style: TextStyle(color: goldColor, fontWeight: FontWeight.w600)),
-                                  const Divider(height: 20),
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.access_time, size: 16, color: Colors.grey),
-                                      const SizedBox(width: 5),
-                                      Text(hearingTime, style: const TextStyle(color: Colors.grey)),
-                                      const SizedBox(width: 15),
-                                      const Icon(Icons.location_on, size: 16, color: Colors.grey),
-                                      const SizedBox(width: 5),
-                                      Expanded(child: Text(courtLocation, style: const TextStyle(color: Colors.grey), overflow: TextOverflow.ellipsis)),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 15),
-                                  SizedBox(
-                                    width: double.infinity,
-                                    height: 45,
-                                    child: ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                          backgroundColor: goldColor,
-                                          foregroundColor: navyBlue,
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
-                                      ),
-                                      onPressed: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (context) => HearingDetailsScreen(
-                                              caseId: doc.id,
-                                              clientName: clientName,
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                      child: const Text("HEARING DETAILS", style: TextStyle(fontWeight: FontWeight.bold)),
-                                    ),
-                                  )
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
+                contentPadding: const EdgeInsets.symmetric(vertical: 0),
+              ),
             ),
+          ),
+          Expanded(
+            child: uid == null
+                ? const Center(child: Text("Please login to see hearings"))
+                : StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance.collection('Hearings').snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                var docs = snapshot.data?.docs.where((doc) {
+                  var data = doc.data() as Map<String, dynamic>;
+                  String lId = (data['lawyerid'] ?? data['lawyerId'] ?? "").toString().trim();
+                  bool isAssigned = lId == uid.toString().trim();
+                  bool isSaved = data['isSaved'] == true || data['status'] == 'Manual' || data['status'] == 'Active';
+
+                  if (!isAssigned || !isSaved) return false;
+
+                  if (_searchQuery.isNotEmpty) {
+                    String clientName = (data['clientName'] ?? "").toString().toLowerCase();
+                    String caseNumber = (data['caseNumber'] ?? "").toString().toLowerCase();
+                    return clientName.contains(_searchQuery) || caseNumber.contains(_searchQuery);
+                  }
+                  return true;
+                }).toList() ?? [];
+
+                if (docs.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.event_note, size: 80, color: navyBlue.withOpacity(0.3)),
+                        const SizedBox(height: 15),
+                        const Text("No hearings found.", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    var doc = docs[index];
+                    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+                    String clientName = data['clientName'] ?? data['client_name'] ?? "Client Name";
+                    String hearingDate = _safeFormatDate(data['hearingDate'] ?? data['hearing_date'] ?? data['date']);
+                    String hearingTime = (data['hearingTime'] ?? data['hearing_time'] ?? "N/A").toString();
+                    String courtName = (data['courtName'] ?? "").toString();
+                    String district = (data['district'] ?? "").toString();
+                    String courtLocation = data['courtLocation'] ?? data['court_location'] ??
+                        (courtName.isNotEmpty ? "$courtName${district.isNotEmpty ? ', $district' : ''}" : "Not Set");
+
+                    return Card(
+                      elevation: 4,
+                      margin: const EdgeInsets.only(bottom: 15),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(clientName, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: navyBlue)),
+                                InkWell(
+                                  onTap: () => _showHearingHistory(context, doc.id, clientName),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: goldColor.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(color: goldColor),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.history, size: 14, color: navyBlue),
+                                        const SizedBox(width: 4),
+                                        const Text("History", style: TextStyle(color: Color(0xFF101D3D), fontSize: 12, fontWeight: FontWeight.bold)),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 5),
+                            Text("Date: $hearingDate", style: TextStyle(color: goldColor, fontWeight: FontWeight.w600)),
+                            const Divider(height: 20),
+                            Row(
+                              children: [
+                                const Icon(Icons.access_time, size: 16, color: Colors.grey),
+                                const SizedBox(width: 5),
+                                Text(hearingTime, style: const TextStyle(color: Colors.grey)),
+                                const SizedBox(width: 15),
+                                const Icon(Icons.location_on, size: 16, color: Colors.grey),
+                                const SizedBox(width: 5),
+                                Expanded(child: Text(courtLocation, style: const TextStyle(color: Colors.grey), overflow: TextOverflow.ellipsis)),
+                              ],
+                            ),
+                            const SizedBox(height: 15),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 45,
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                    backgroundColor: goldColor,
+                                    foregroundColor: navyBlue,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
+                                ),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => HearingDetailsScreen(
+                                        caseId: doc.id,
+                                        clientName: clientName,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: const Text("HEARING DETAILS", style: TextStyle(fontWeight: FontWeight.bold)),
+                              ),
+                            )
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

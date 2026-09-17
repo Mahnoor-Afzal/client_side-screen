@@ -308,6 +308,12 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
         'clientName': clientName,
         'lawyerName': lawyerName,
         'type': type,
+        // Standardized schema so team-coordination, search and chat resolve
+        // uniformly regardless of how the request was created.
+        'caseCategory': '',
+        'subCategory': '',
+        'assignedLawyers': <String>[],
+        'teamNames': <String>[],
         'isDirectRequest': true,
       });
 

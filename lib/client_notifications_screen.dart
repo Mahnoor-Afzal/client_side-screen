@@ -39,15 +39,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid == null) return;
 
-      var unreadDocs = await FirebaseFirestore.instance
+      var allDocs = await FirebaseFirestore.instance
           .collection('notifications')
-          .where('userId', isEqualTo: uid)
-          .where('isRead', isEqualTo: false)
           .get();
 
       WriteBatch batch = FirebaseFirestore.instance.batch();
-      for (var doc in unreadDocs.docs) {
-        batch.update(doc.reference, {'isRead': true});
+      for (var doc in allDocs.docs) {
+        var data = doc.data();
+        String receiver = (data['userId'] ?? data['receiverId'] ?? data['lawyerId'] ?? data['toId'] ?? '').toString().trim();
+        if (receiver == uid && data['isRead'] != true) {
+          batch.update(doc.reference, {'isRead': true});
+        }
       }
       await batch.commit();
     } catch (e) {
@@ -62,15 +64,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
       var snapshot = await FirebaseFirestore.instance
           .collection('notifications')
-          .where('userId', isEqualTo: uid)
-          .where('syncedToHearings', isNotEqualTo: true)
           .get();
 
       for (var doc in snapshot.docs) {
         var data = doc.data();
-        String type = (data['type'] ?? '').toString().toLowerCase();
-        if (type.contains("hearing") || type.contains("case")) {
-          await doc.reference.update({'syncedToHearings': true});
+        String receiver = (data['userId'] ?? data['receiverId'] ?? data['lawyerId'] ?? data['toId'] ?? '').toString().trim();
+        if (receiver == uid && data['syncedToHearings'] != true) {
+          String type = (data['type'] ?? '').toString().toLowerCase();
+          if (type.contains("hearing") || type.contains("case")) {
+            await doc.reference.update({'syncedToHearings': true});
+          }
         }
       }
     } catch (e) {
@@ -98,7 +101,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           : StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('notifications')
-            .where('userId', isEqualTo: currentUid)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) return const Center(child: Text("Error loading data"));
@@ -106,7 +108,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             return const Center(child: CircularProgressIndicator(color: navyBlue));
           }
 
-          var docs = snapshot.data?.docs ?? [];
+          var allDocs = snapshot.data?.docs ?? [];
+          var docs = allDocs.where((doc) {
+            var data = doc.data() as Map<String, dynamic>;
+            String receiver = (data['userId'] ?? data['receiverId'] ?? data['lawyerId'] ?? data['toId'] ?? '').toString().trim();
+            return receiver == currentUid;
+          }).toList();
 
           docs.sort((a, b) {
             var timeA = (a.data() as Map<String, dynamic>)['createdAt'];

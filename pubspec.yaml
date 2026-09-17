@@ -29,6 +29,7 @@ dependencies:
   cloudinary_public: ^0.23.1
   flutter_image_compress: ^2.3.0
   path_provider: ^2.1.2
+  open_filex: ^4.5.0
   pdf: ^3.10.8
   printing: ^5.11.0
   share_plus: ^7.2.1

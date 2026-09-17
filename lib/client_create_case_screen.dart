@@ -73,6 +73,9 @@ class _CreateCaseScreenState extends State<CreateCaseScreen> {
             'clientId': user?.uid,
             'lawyerId': widget.lawyerId,
             'lawyerName': widget.lawyerName,
+            // Standardized schema shared with all request-creation paths.
+            'assignedLawyers': <String>[],
+            'teamNames': <String>[],
             'isDirectRequest': true,
           });
 

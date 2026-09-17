@@ -14,7 +14,7 @@ import 'consultation_screen.dart';
 import 'documents_screen.dart';
 import 'hearings_list_screen.dart';
 import 'coordination_screen.dart';
-import 'notification_screen.dart';
+import 'Notification_screen.dart';
 import 'messages_list_screen.dart';
 import 'closed_cases_screen.dart';
 

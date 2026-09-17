@@ -59,13 +59,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (user != null) {
       _notificationSubscription = FirebaseFirestore.instance
           .collection('notifications')
-          .where('userId', isEqualTo: user.uid)
-          .where('isRead', isEqualTo: false)
           .snapshots()
           .listen((snapshot) {
         if (mounted) {
+          int count = snapshot.docs.where((doc) {
+            var data = doc.data();
+            bool isRead = data['isRead'] ?? false;
+            String receiver = (data['userId'] ?? data['receiverId'] ?? data['lawyerId'] ?? data['toId'] ?? '').toString().trim();
+            return receiver == user.uid && !isRead;
+          }).length;
+
           setState(() {
-            _unreadNotifications = snapshot.docs.length;
+            _unreadNotifications = count;
           });
         }
       });

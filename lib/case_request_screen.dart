@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'client_notification_helper.dart';
 
 class CaseRequestsScreen extends StatefulWidget {
   const CaseRequestsScreen({super.key});
@@ -357,15 +358,32 @@ class _CaseRequestsScreenState extends State<CaseRequestsScreen> {
         }, SetOptions(merge: true));
 
         if (clientId.isNotEmpty) {
+          String title = 'Request Accepted!';
+          String body = 'Your request has been accepted. Communication is now open.';
+
           await FirebaseFirestore.instance.collection('notifications').add({
-            'userId': clientId,
-            'title': 'Request Accepted!',
-            'body': 'Your request has been accepted. Communication is now open.',
-            'type': 'chat_enabled',
+            'receiverId': clientId,
+            'senderId': currentLawyerId,
+            'title': title,
+            'body': body,
+            'type': 'request_accepted',
+            'caseId': doc.id,
             'requestId': doc.id,
-            'timestamp': FieldValue.serverTimestamp(),
+            'createdAt': FieldValue.serverTimestamp(),
             'isRead': false,
           });
+
+          // Send Push Notification
+          await NotificationHelper.sendPushNotification(
+            clientId,
+            title,
+            body,
+            {
+              'type': 'request_accepted',
+              'caseId': doc.id,
+              'requestId': doc.id,
+            },
+          );
         }
 
         if (mounted) {
