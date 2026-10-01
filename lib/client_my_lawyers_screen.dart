@@ -75,7 +75,7 @@ class _MyLawyersScreenState extends State<MyLawyersScreen> {
               },
               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
-                hintText: "Search by lawyer name or specialization...",
+                hintText: "Search by lawyer name...",
                 hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
                 prefixIcon: const Icon(Icons.search, color: gold),
                 filled: true,

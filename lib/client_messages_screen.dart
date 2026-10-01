@@ -379,18 +379,22 @@ class _MessagesScreenState extends State<MessagesScreen> {
                         : (chatData['lawyerName'] ?? "Lawyer");
 
                     return FutureBuilder<DocumentSnapshot>(
-                      future: FirebaseFirestore.instance
-                          .collection('verified_lawyers')
-                          .doc(otherUserId)
-                          .get(const GetOptions(source: Source.serverAndCache))
-                          .then((lawyerDoc) {
-                        if (lawyerDoc.exists) return lawyerDoc;
-                        return FirebaseFirestore.instance
-                            .collection('users')
-                            .doc(otherUserId)
-                            .get(const GetOptions(source: Source.serverAndCache));
-                      }),
+                      future: (otherUserId.isEmpty)
+                          ? Future.error("Invalid User ID")
+                          : FirebaseFirestore.instance
+                              .collection('verified_lawyers')
+                              .doc(otherUserId)
+                              .get(const GetOptions(source: Source.serverAndCache))
+                              .then((lawyerDoc) {
+                                if (lawyerDoc.exists) return lawyerDoc;
+                                return FirebaseFirestore.instance
+                                    .collection('users')
+                                    .doc(otherUserId)
+                                    .get(const GetOptions(source: Source.serverAndCache));
+                              }),
                       builder: (context, userSnapshot) {
+                        if (userSnapshot.hasError) return const SizedBox.shrink();
+
                         String userName = fallbackName;
                         if (userSnapshot.hasData && userSnapshot.data!.exists) {
                           var userData = userSnapshot.data?.data() as Map<String, dynamic>?;

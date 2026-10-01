@@ -17,6 +17,7 @@ class LawyerProfileScreen extends StatefulWidget {
 }
 
 class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
+  final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _cnicController = TextEditingController();
   final _phoneController = TextEditingController();
@@ -92,12 +93,12 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
   }
 
   Future<void> _saveProfile() async {
-    if (_nameController.text.isEmpty ||
-        _cnicController.text.isEmpty ||
-        _phoneController.text.isEmpty ||
-        _ageController.text.isEmpty ||
-        _expController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please fill all fields")));
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    if (selectedProvince == null || selectedGender == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select Province and Gender")));
       return;
     }
 
@@ -167,9 +168,11 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
               // 📸 Interactive Profile Image Selector
               Center(
                 child: GestureDetector(
@@ -203,14 +206,29 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-              _buildTextField("Full Name", _nameController, Icons.person_outline),
+              _buildTextField("Full Name", _nameController, Icons.person_outline,
+                  capitalization: TextCapitalization.words,
+                  validator: (val) {
+                    if (val == null || val.trim().isEmpty) return "Enter full name";
+                    if (val.trim().length < 3) return "Name too short";
+                    if (!RegExp(r"^[a-zA-Z\s\.-]+$").hasMatch(val)) return "Alphabets only";
+                    return null;
+                  }),
               const SizedBox(height: 15),
 
               Row(
                 children: [
-                  Expanded(child: _buildTextField("Age", _ageController, Icons.cake_outlined, type: TextInputType.number)),
+                  Expanded(
+                    child: _buildTextField("Age", _ageController, Icons.cake_outlined, 
+                        type: TextInputType.number,
+                        validator: (val) => (val == null || val.isEmpty) ? "Required" : null),
+                  ),
                   const SizedBox(width: 15),
-                  Expanded(child: _buildTextField("Exp (Years)", _expController, Icons.work_outline, type: TextInputType.number)),
+                  Expanded(
+                    child: _buildTextField("Exp (Years)", _expController, Icons.work_outline, 
+                        type: TextInputType.number,
+                        validator: (val) => (val == null || val.isEmpty) ? "Required" : null),
+                  ),
                 ],
               ),
               const SizedBox(height: 15),
@@ -224,6 +242,7 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                 type: TextInputType.number,
                 formatters: [_CnicInputFormatter()],
                 hint: "xxxxx-xxxxxxx-x",
+                validator: (val) => (val == null || val.length < 15) ? "Enter valid CNIC" : null,
               ),
               const SizedBox(height: 15),
 
@@ -236,6 +255,7 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                 limit: 11,
                 formatters: [FilteringTextInputFormatter.digitsOnly],
                 hint: "03XXXXXXXXX",
+                validator: (val) => (val == null || val.length < 11) ? "Enter valid phone" : null,
               ),
               const SizedBox(height: 15),
               Row(
@@ -254,7 +274,8 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                 ],
               ),
               const SizedBox(height: 15),
-              _buildTextField("Area", _areaController, Icons.location_on_outlined),
+              _buildTextField("Area", _areaController, Icons.location_on_outlined,
+                  validator: (val) => (val == null || val.isEmpty) ? "Enter area" : null),
               const SizedBox(height: 30),
               SizedBox(
                 width: double.infinity,
@@ -275,6 +296,7 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
           ),
         ),
       ),
+    ),
     );
   }
 
@@ -296,12 +318,17 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
         int? limit,
         List<TextInputFormatter>? formatters,
         String? hint,
+        String? Function(String?)? validator,
+        TextCapitalization capitalization = TextCapitalization.none,
       }) {
     return TextFormField(
       controller: controller,
       keyboardType: type,
       maxLength: limit,
       inputFormatters: formatters,
+      validator: validator,
+      textCapitalization: capitalization,
+      autovalidateMode: AutovalidateMode.onUserInteraction,
       style: const TextStyle(color: Colors.white, fontSize: 14),
       decoration: InputDecoration(
         labelText: label,

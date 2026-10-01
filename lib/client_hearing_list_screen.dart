@@ -65,7 +65,7 @@ class _HearingListScreenState extends State<HearingListScreen> {
               },
               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
-                hintText: "Search hearings by case type or title...",
+                hintText: "Search hearings...",
                 hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
                 prefixIcon: const Icon(Icons.search, color: accentGold),
                 filled: true,

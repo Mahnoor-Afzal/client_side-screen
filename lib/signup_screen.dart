@@ -92,7 +92,13 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 const SizedBox(height: 40),
                 
                 _buildTextField("Full Name", _nameController, Icons.person_outline, goldColor, 
-                    (val) => (val == null || val.isEmpty) ? 'Name Required' : null),
+                    (val) {
+                      if (val == null || val.trim().isEmpty) return 'Name Required';
+                      if (val.trim().length < 3) return 'Name too short';
+                      if (!RegExp(r"^[a-zA-Z\s\.-]+$").hasMatch(val)) return 'Alphabets only';
+                      return null;
+                    },
+                    capitalization: TextCapitalization.words),
                 
                 const SizedBox(height: 20),
                 _buildTextField("Email Address", _emailController, Icons.email_outlined, goldColor, 
@@ -146,10 +152,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
     );
   }
 
-  Widget _buildTextField(String label, TextEditingController controller, IconData icon, Color gold, String? Function(String?) validator) {
+  Widget _buildTextField(String label, TextEditingController controller, IconData icon, Color gold, String? Function(String?) validator, {TextCapitalization capitalization = TextCapitalization.none}) {
     return TextFormField(
       controller: controller,
       validator: validator,
+      textCapitalization: capitalization,
       style: const TextStyle(color: Colors.white, fontSize: 14),
       decoration: InputDecoration(
         labelText: label,

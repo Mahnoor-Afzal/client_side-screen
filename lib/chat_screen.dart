@@ -216,7 +216,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 _deleteForEveryone(messageId);
                 Navigator.pop(context);
               },
-              child: const Text("Delete for Everyone", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+              child: const Text("Delete from Everyone", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
             ),
         ],
       ),

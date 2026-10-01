@@ -125,7 +125,7 @@ class _PendingCasesScreenState extends State<PendingCasesScreen> {
                       });
                     },
                     decoration: InputDecoration(
-                      hintText: "Search by client name or case type...",
+                      hintText: "Search by name...",
                       prefixIcon: const Icon(Icons.search),
                       filled: true,
                       fillColor: Colors.white,

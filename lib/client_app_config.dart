@@ -1,3 +1,8 @@
 class AppConfig {
-  static const String fcmServerKey = 'AIzaSyDQP_4C2i-KvTJs7EeM_KyxShTP8NXTmqA';
+  static const String fcmServerKey = 'YOUR_FCM_SERVER_KEY';
+  static const String openRouterApiKey = 'YOUR_OPEN_ROUTER_API_KEY';
+  
+  // Cloudinary Configuration
+  static const String cloudinaryCloudName = 'gasafl8q';
+  static const String cloudinaryUploadPreset = 'ml_default';
 }

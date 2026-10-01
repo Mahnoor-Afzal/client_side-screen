@@ -317,7 +317,7 @@ class _MyCasesScreenState extends State<MyCasesScreen> {
               },
               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
-                hintText: "Search by case type or name...",
+                hintText: "Search by name...",
                 hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
                 prefixIcon: const Icon(Icons.search, color: gold),
                 filled: true,

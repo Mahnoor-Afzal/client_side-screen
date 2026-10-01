@@ -116,10 +116,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           }).toList();
 
           docs.sort((a, b) {
-            var timeA = (a.data() as Map<String, dynamic>)['createdAt'];
-            var timeB = (b.data() as Map<String, dynamic>)['createdAt'];
-            DateTime dtA = timeA is Timestamp ? timeA.toDate() : DateTime.fromMillisecondsSinceEpoch(0);
-            DateTime dtB = timeB is Timestamp ? timeB.toDate() : DateTime.fromMillisecondsSinceEpoch(0);
+            var dataA = a.data() as Map<String, dynamic>;
+            var dataB = b.data() as Map<String, dynamic>;
+            var timeA = dataA['createdAt'] ?? dataA['timestamp'];
+            var timeB = dataB['createdAt'] ?? dataB['timestamp'];
+            
+            DateTime dtA = timeA is Timestamp ? timeA.toDate() : (timeA is String ? (DateTime.tryParse(timeA) ?? DateTime.fromMillisecondsSinceEpoch(0)) : DateTime.now());
+            DateTime dtB = timeB is Timestamp ? timeB.toDate() : (timeB is String ? (DateTime.tryParse(timeB) ?? DateTime.fromMillisecondsSinceEpoch(0)) : DateTime.now());
             return dtB.compareTo(dtA);
           });
 

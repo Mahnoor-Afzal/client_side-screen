@@ -14,6 +14,7 @@ import 'client_my_cases_screen.dart';
 import 'client_complaint_screen.dart';
 import 'client_messages_screen.dart';
 import 'client_notifications_screen.dart';
+import 'Notification_screen.dart';
 import 'client_lawyer_requests_screen.dart';
 import 'client_documents_screen.dart';
 import 'client_chatbot_screen.dart';
@@ -21,6 +22,7 @@ import 'client_group_chat_list_screen.dart';
 import 'client_hearing_list_screen.dart';
 import 'client_hearing_details_screen.dart';
 import 'client_chat_screen.dart';
+import 'coordination_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -57,20 +59,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void _listenToNotifications() {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
+      // Optimized: Only listen to unread notifications for THIS user
       _notificationSubscription = FirebaseFirestore.instance
           .collection('notifications')
+          .where('userId', isEqualTo: user.uid)
+          .where('isRead', isEqualTo: false)
           .snapshots()
           .listen((snapshot) {
         if (mounted) {
-          int count = snapshot.docs.where((doc) {
-            var data = doc.data();
-            bool isRead = data['isRead'] ?? false;
-            String receiver = (data['userId'] ?? data['receiverId'] ?? data['lawyerId'] ?? data['toId'] ?? '').toString().trim();
-            return receiver == user.uid && !isRead;
-          }).length;
-
           setState(() {
-            _unreadNotifications = count;
+            _unreadNotifications = snapshot.docs.length;
           });
         }
       });
@@ -79,19 +77,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadDashboardData() async {
     try {
-      // 1. Pehle user data fetch karein taake role pata chale (Lawyer ya Client)
-      await _fetchUserData().timeout(const Duration(seconds: 5));
+      // 1. Parallel loading: Start both but wait for user data to show UI faster
+      final userDataFuture = _fetchUserData();
       
-      // 2. Phir notifications setup karein (ab role sahi milega)
-      await _setupPushNotifications();
-    } catch (e) {
-      debugPrint("Data loading error: $e");
-    } finally {
+      // We wait for essential user data (name/role) for 5s max
+      await userDataFuture.timeout(const Duration(seconds: 5));
+      
       if (mounted) {
         setState(() {
-          _isLoading = false;
+          _isLoading = false; 
         });
       }
+
+      // 2. Setup notifications in background (doesn't block dashboard view)
+      _setupPushNotifications();
+    } catch (e) {
+      debugPrint("Data loading error: $e");
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -263,11 +265,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
       );
+    } else if (type == 'coordination_request') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const CoordinationScreen(initialTab: 2), // Requests tab is at index 2
+        ),
+      );
     } else if (type == 'case_completed') {
-      // Direct notification se rating screen open karna
-      Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationsScreen()));
+      // Direct notification se professional notification screen open karna
+      _goToNotifications();
     } else {
       // Default behavior
+      _goToNotifications();
+    }
+  }
+
+  void _goToNotifications() {
+    if (_userRole == 'lawyer') {
+      Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationScreen()));
+    } else {
       Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationsScreen()));
     }
   }
@@ -283,21 +300,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     try {
-      // Pehle 'users' collection check karein
-      var doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      // Parallel fetch for better performance
+      final userDocFuture = FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final lawyerDocFuture = FirebaseFirestore.instance.collection('verified_lawyers').doc(user.uid).get();
+
+      final results = await Future.wait([userDocFuture, lawyerDocFuture]);
+      
+      var doc = results[0];
+      var lawyerDoc = results[1];
+      
       Map<String, dynamic>? data;
       String role = "client";
 
       if (doc.exists) {
         data = doc.data();
         role = data?['role'] ?? "client";
-      } else {
-        // Agar nahi mila toh 'verified_lawyers' check karein
-        var lawyerDoc = await FirebaseFirestore.instance.collection('verified_lawyers').doc(user.uid).get();
-        if (lawyerDoc.exists) {
-          data = lawyerDoc.data();
-          role = 'lawyer';
-        }
+      } else if (lawyerDoc.exists) {
+        data = lawyerDoc.data();
+        role = 'lawyer';
       }
 
       if (data != null && mounted) {
@@ -436,16 +456,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         iconTheme: const IconThemeData(color: gold),
         actions: [
           GestureDetector(
-            onTap: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationsScreen()));
-            },
+            onTap: _goToNotifications,
             child: Stack(
               children: [
                 IconButton(
                   icon: const Icon(Icons.notifications_active_outlined, color: gold, size: 28),
-                  onPressed: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationsScreen()));
-                  },
+                  onPressed: _goToNotifications,
                 ),
                 if (_unreadNotifications > 0)
                   Positioned(
@@ -534,7 +550,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       Navigator.push(context, MaterialPageRoute(builder: (context) => const MyCasesScreen(filterStatus: 'Rejected')));
                     }),
                     _drawerItem(Icons.notifications_none_rounded, "Notifications", gold, () {
-                      Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationsScreen()));
+                      Navigator.pop(context);
+                      _goToNotifications();
                     }),
                     _drawerItem(Icons.groups_outlined, "Team Chat", gold, () {
                       Navigator.pop(context);
@@ -602,6 +619,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
     const Color navyBlue = Color(0xFF001F3F);
     const Color gold = Color(0xFFD4AF37);
 
+    // Prepare dashboard items based on role for responsiveness
+    List<Widget> items = [];
+    if (_userRole == 'lawyer') {
+      items.add(_dashboardCard("Case Requests", Icons.assignment_late_rounded, navyBlue, onTap: () {
+        Navigator.push(context, MaterialPageRoute(builder: (context) => const LawyerRequestsScreen()));
+      }));
+    }
+    items.add(_dashboardCard("Create Case", Icons.add_box_rounded, navyBlue, onTap: () {
+      Navigator.push(context, MaterialPageRoute(builder: (context) => const CreateCaseScreen()));
+    }));
+    items.add(_dashboardCard("Documents", Icons.description_rounded, navyBlue, onTap: () {
+      Navigator.push(context, MaterialPageRoute(builder: (context) => const DocumentsScreen()));
+    }));
+    items.add(_dashboardCard("My Cases", Icons.folder_shared, navyBlue, onTap: () {
+      Navigator.push(context, MaterialPageRoute(builder: (context) => const MyCasesScreen(filterType: 'File a Suit')));
+    }));
+    if (_userRole != 'lawyer') {
+      items.add(_dashboardCard("My Lawyers", Icons.person_search, navyBlue, onTap: () {
+        Navigator.push(context, MaterialPageRoute(builder: (context) => const MyLawyersScreen()));
+      }));
+    }
+    items.add(_dashboardCard("Consultation", Icons.handshake_outlined, navyBlue, onTap: () {
+      Navigator.push(context, MaterialPageRoute(builder: (context) => const MyCasesScreen(filterType: 'Consultation')));
+    }));
+    items.add(_dashboardCard("Hearing Detail", Icons.gavel_rounded, navyBlue, onTap: () {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const HearingListScreen()),
+      );
+    }));
+    if (_userRole == 'lawyer') {
+      items.add(_dashboardCard("My Lawyers", Icons.person_search, navyBlue, onTap: () {
+        Navigator.push(context, MaterialPageRoute(builder: (context) => const MyLawyersScreen()));
+      }));
+    }
+
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -629,44 +682,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           Padding(
             padding: const EdgeInsets.all(20.0),
-            child: GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: 2,
-              crossAxisSpacing: 15,
-              mainAxisSpacing: 15,
-              children: [
-                if (_userRole == 'lawyer')
-                  _dashboardCard("Case Requests", Icons.assignment_late_rounded, navyBlue, onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const LawyerRequestsScreen()));
-                  }),
-                _dashboardCard("Create Case", Icons.add_box_rounded, navyBlue, onTap: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const CreateCaseScreen()));
-                }),
-                _dashboardCard("Documents", Icons.description_rounded, navyBlue, onTap: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const DocumentsScreen()));
-                }),
-                _dashboardCard("My Cases", Icons.folder_shared, navyBlue, onTap: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const MyCasesScreen(filterType: 'File a Suit')));
-                }),
-                if (_userRole != 'lawyer')
-                  _dashboardCard("My Lawyers", Icons.person_search, navyBlue, onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const MyLawyersScreen()));
-                  }),
-                _dashboardCard("Consultation", Icons.handshake_outlined, navyBlue, onTap: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const MyCasesScreen(filterType: 'Consultation')));
-                }),
-                _dashboardCard("Hearing Detail", Icons.gavel_rounded, navyBlue, onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const HearingListScreen()),
-                  );
-                }),
-                if (_userRole == 'lawyer')
-                  _dashboardCard("My Lawyers", Icons.person_search, navyBlue, onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const MyLawyersScreen()));
-                  }),
-              ],
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // Responsive crossAxisCount based on screen width
+                int crossAxisCount = 2;
+                if (constraints.maxWidth > 600) {
+                  crossAxisCount = 4;
+                } else if (constraints.maxWidth > 400) {
+                  crossAxisCount = 3;
+                }
+                
+                return GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: crossAxisCount,
+                    crossAxisSpacing: 15,
+                    mainAxisSpacing: 15,
+                    childAspectRatio: 1.1,
+                  ),
+                  itemCount: items.length,
+                  itemBuilder: (context, index) => items[index],
+                );
+              },
             ),
           ),
         ],
@@ -745,32 +783,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('suit_a_file_request')
+          .where('clientId', isEqualTo: uid)
+          .where('status', whereIn: ['Closed', 'Completed', 'closed', 'completed'])
           .snapshots(),
       builder: (context, suitSnap) {
         return StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance
               .collection('consultation_request')
+              .where('clientId', isEqualTo: uid)
+              .where('status', whereIn: ['Closed', 'Completed', 'closed', 'completed'])
               .snapshots(),
           builder: (context, consultSnap) {
             List<QueryDocumentSnapshot> pending = [];
             
-            // Filter locally to avoid index issues and handle both clientId/userId
             void filterDocs(QuerySnapshot? snap) {
               if (snap == null) return;
               for (var doc in snap.docs) {
                 var data = doc.data() as Map<String, dynamic>;
-                // Broad matching for Client identification
-                bool isMine = data['clientId'] == uid || 
-                             data['userId'] == uid || 
-                             (data['senderType'] == 'client' && data['senderId'] == uid);
-                             
-                bool isClosed = data['status']?.toString().toLowerCase() == 'closed' || 
-                               data['status']?.toString().toLowerCase() == 'completed';
-                
-                // Show if either isRated is false or missing
-                bool notRated = data['isRated'] == false || data['isRated'] == null;
-                
-                if (isMine && isClosed && notRated) {
+                if (data['isRated'] != true) {
                   pending.add(doc);
                 }
               }
@@ -783,8 +813,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
             var caseData = pending.first.data() as Map<String, dynamic>;
             String lawyerName = caseData['lawyerName'] ?? "your lawyer";
+            String? lawyerId = caseData['lawyerId'];
             String requestId = pending.first.id;
             String collectionName = pending.first.reference.parent.id;
+
+            // Safety check: ensure all necessary IDs are present before rendering
+            if (lawyerId == null || lawyerId.isEmpty || requestId.isEmpty || collectionName.isEmpty) {
+              return const SizedBox.shrink();
+            }
 
             return Container(
               margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
@@ -822,7 +858,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       onPressed: () {
                         _showRatingDialog(
                           context, 
-                          caseData['lawyerId'], 
+                          lawyerId, 
                           requestId, 
                           collectionName
                         );
@@ -896,6 +932,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _submitRating(String lawyerId, double rating, String? requestId, String? collectionName) async {
+    if (lawyerId.isEmpty) return;
+
     try {
       DocumentReference lawyerRef = FirebaseFirestore.instance.collection('verified_lawyers').doc(lawyerId);
       await FirebaseFirestore.instance.runTransaction((transaction) async {
@@ -908,7 +946,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         transaction.update(lawyerRef, {'rating': newRating, 'reviewCount': reviewCount + 1});
       });
 
-      if (requestId != null && collectionName != null) {
+      if (requestId != null && requestId.isNotEmpty && collectionName != null && collectionName.isNotEmpty) {
         await FirebaseFirestore.instance.collection(collectionName).doc(requestId).update({
           'needsRating': false,
           'isRated': true,

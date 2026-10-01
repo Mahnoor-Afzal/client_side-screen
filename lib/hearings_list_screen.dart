@@ -157,7 +157,7 @@ class _HearingsListScreenState extends State<HearingsListScreen> {
                 });
               },
               decoration: InputDecoration(
-                hintText: "Search by client or case number...",
+                hintText: "Search by name...",
                 prefixIcon: Icon(Icons.search, color: navyBlue),
                 filled: true,
                 fillColor: Colors.white,

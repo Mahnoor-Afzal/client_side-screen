@@ -50,7 +50,7 @@ class _ActiveCasesScreenState extends State<ActiveCasesScreen> {
                       });
                     },
                     decoration: InputDecoration(
-                      hintText: "Search by client name, case type or ID...",
+                      hintText: "Search by name...",
                       prefixIcon: const Icon(Icons.search),
                       filled: true,
                       fillColor: Colors.white,
@@ -156,10 +156,26 @@ class _ActiveCasesScreenState extends State<ActiveCasesScreen> {
                 Expanded(
                   child: Row(
                     children: [
-                      CircleAvatar(
-                        backgroundColor: navyBlue,
-                        radius: 22,
-                        child: const Icon(Icons.person, color: Colors.white, size: 28),
+                      StreamBuilder<DocumentSnapshot>(
+                        stream: FirebaseFirestore.instance.collection('users').doc(clientId).snapshots(),
+                        builder: (context, userSnap) {
+                          String? imageUrl;
+                          if (userSnap.hasData && userSnap.data!.exists) {
+                            var userData = userSnap.data!.data() as Map<String, dynamic>;
+                            imageUrl = userData['profileImageUrl'] ?? userData['profilePicture'] ?? userData['imageUrl'];
+                          }
+
+                          return CircleAvatar(
+                            backgroundColor: navyBlue,
+                            radius: 22,
+                            backgroundImage: (imageUrl != null && imageUrl.isNotEmpty)
+                                ? NetworkImage(imageUrl)
+                                : null,
+                            child: (imageUrl == null || imageUrl.isEmpty)
+                                ? const Icon(Icons.person, color: Colors.white, size: 28)
+                                : null,
+                          );
+                        },
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -216,7 +232,7 @@ class _ActiveCasesScreenState extends State<ActiveCasesScreen> {
                 ),
                 IconButton(
                   icon: Icon(Icons.group_add_rounded, color: goldColor, size: 28),
-                  onPressed: () => _showAddLawyerDialog(context, id, name, type, clientId),
+                  onPressed: null, // Pop-up disable karne ke liye
                 ),
               ],
             ),

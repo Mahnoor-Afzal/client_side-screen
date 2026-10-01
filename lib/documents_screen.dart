@@ -226,7 +226,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
 
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("File Uploaded Successfully & Client Notified!"), backgroundColor: Colors.green),
+              const SnackBar(content: Text("File Uploaded Successfully"), backgroundColor: Colors.green),
             );
           }
         }
@@ -396,7 +396,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                   });
                 },
                 decoration: InputDecoration(
-                  hintText: "Search by document name or client name...",
+                  hintText: "Search...",
                   prefixIcon: const Icon(Icons.search),
                   filled: true,
                   fillColor: Colors.white,

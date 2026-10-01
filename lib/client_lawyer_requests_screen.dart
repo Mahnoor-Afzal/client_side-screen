@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http; // Naya import
 import 'dart:convert'; // Naya import
 import 'client_chat_screen.dart';
 import 'client_pdf_helper.dart';
+import 'client_notification_helper.dart';
 import 'package:cloudinary_public/cloudinary_public.dart';
 import 'dart:typed_data';
 import 'client_app_config.dart';
@@ -20,36 +21,6 @@ class _LawyerRequestsScreenState extends State<LawyerRequestsScreen> {
   static const Color navyBlue = Color(0xFF001F3F);
   static const Color gold = Color(0xFFD4AF37);
   final String? lawyerId = FirebaseAuth.instance.currentUser?.uid;
-
-  // Notification bhejney ka function
-  Future<void> sendPushNotification(String token, String title, String body, {Map<String, dynamic>? data}) async {
-    try {
-      await http.post(
-        Uri.parse('https://fcm.googleapis.com/fcm/send'),
-        headers: <String, String>{
-          'Content-Type': 'application/json',
-          'Authorization': 'key=${AppConfig.fcmServerKey}',
-        },
-        body: jsonEncode(<String, dynamic>{
-          'notification': <String, dynamic>{
-            'body': body,
-            'title': title,
-            'android_channel_id': 'high_importance_channel',
-            'sound': 'default',
-          },
-          'priority': 'high',
-          'data': data ?? <String, dynamic>{
-            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
-            'status': 'done',
-          },
-          'to': token,
-        }),
-      );
-      debugPrint("Notification sent successfully!");
-    } catch (e) {
-      debugPrint("Error sending notification: $e");
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -342,7 +313,11 @@ class _LawyerRequestsScreenState extends State<LawyerRequestsScreen> {
       );
 
       // Upload PDF to Cloudinary
-      final cloudinary = CloudinaryPublic('gasafl8q', 'ml_default', cache: false);
+      final cloudinary = CloudinaryPublic(
+        AppConfig.cloudinaryCloudName,
+        AppConfig.cloudinaryUploadPreset,
+        cache: false,
+      );
       CloudinaryResponse cloudinaryResponse = await cloudinary.uploadFile(
         CloudinaryFile.fromBytesData(
           pdfBytes,
@@ -391,23 +366,17 @@ class _LawyerRequestsScreenState extends State<LawyerRequestsScreen> {
       });
 
       // 4. Real-time Push Notification (Mobile Popup)
-      DocumentSnapshot userDoc = await FirebaseFirestore.instance.collection('users').doc(clientId).get();
-      if (userDoc.exists) {
-        String? token = (userDoc.data() as Map<String, dynamic>?)?['fcmToken'];
-        if (token != null && token.isNotEmpty) {
-          await sendPushNotification(
-            token,
-            "Vakalatnama Received",
-            "Your lawyer has sent a Vakalatnama for you to sign in the Documents section.",
-            data: {
-              'click_action': 'FLUTTER_NOTIFICATION_CLICK',
-              'type': 'document_received',
-              'requestId': requestId,
-              'docId': docRef.id,
-            },
-          );
-        }
-      }
+      await NotificationHelper.sendPushNotification(
+        clientId,
+        "Vakalatnama Received",
+        "Your lawyer has sent a Vakalatnama for you to sign in the Documents section.",
+        {
+          'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+          'type': 'document_received',
+          'requestId': requestId,
+          'docId': docRef.id,
+        },
+      );
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

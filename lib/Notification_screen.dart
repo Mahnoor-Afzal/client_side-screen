@@ -256,9 +256,13 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
       List<Map<String, dynamic>> combined = [...groupedChatList, ...otherNotifs, ...req1List, ...req2List];
       combined.sort((a, b) {
-        Timestamp tA = a['timestamp'] is Timestamp ? a['timestamp'] : Timestamp.now();
-        Timestamp tB = b['timestamp'] is Timestamp ? b['timestamp'] : Timestamp.now();
-        return tB.compareTo(tA);
+        DateTime _parseTime(dynamic t) {
+          if (t is Timestamp) return t.toDate();
+          if (t is DateTime) return t;
+          if (t is String) return DateTime.tryParse(t) ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return DateTime.fromMillisecondsSinceEpoch(0);
+        }
+        return _parseTime(b['timestamp']).compareTo(_parseTime(a['timestamp']));
       });
 
       controller.add(combined);
@@ -270,7 +274,16 @@ class _NotificationScreenState extends State<NotificationScreen> {
         var data = doc.data();
         String receiver = (data['userId'] ?? data['receiverId'] ?? data['lawyerId'] ?? data['toId'] ?? '').toString().trim();
         return receiver == currentUid;
-      }).map((doc) => {...doc.data(), 'docId': doc.id, 'source': 'notifications_col'}).toList();
+      }).map((doc) {
+        var data = doc.data();
+        return {
+          ...data,
+          'docId': doc.id,
+          'source': 'notifications_col',
+          // Ensure a consistent timestamp field for sorting
+          'timestamp': data['createdAt'] ?? data['timestamp'] ?? data['date'] ?? Timestamp.now(),
+        };
+      }).toList();
       emitCombined();
     });
 

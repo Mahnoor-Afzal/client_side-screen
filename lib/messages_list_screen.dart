@@ -20,30 +20,6 @@ class _MessagesListScreenState extends State<MessagesListScreen> {
     super.dispose();
   }
 
-  // Last Message Tick Widget Logic for List Screen
-  Widget _buildLastMessageTick(Map<String, dynamic> data, String currentLawyerId) {
-    String lastSenderId = data['lastSenderId'] ?? '';
-
-    // If the last message was not sent by the lawyer (you), do not show the tick icon
-    if (lastSenderId != currentLawyerId) return const SizedBox.shrink();
-
-    bool isRead = data['isRead'] ?? false;
-    List readBy = data['readBy'] ?? [];
-
-    bool showBlueTick = isRead || readBy.length > 1;
-
-    // Exact WhatsApp Cyan Blue Hex: 0xFF34B7F1
-    Color tickColor = showBlueTick ? const Color(0xFF34B7F1) : const Color(0xFF8696A0);
-
-    return Padding(
-      padding: const EdgeInsets.only(right: 4.0),
-      child: Icon(
-        Icons.done_all,
-        size: 16,
-        color: tickColor,
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -215,17 +191,10 @@ class _MessagesListScreenState extends State<MessagesListScreen> {
                                         ),
                                   subtitle: Padding(
                                     padding: const EdgeInsets.only(top: 4.0),
-                                    child: Row(
-                                      children: [
-                                        _buildLastMessageTick(data, currentLawyerId),
-                                        Expanded(
-                                          child: Text(
-                                            data['lastMessage'] ?? "No messages yet",
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ],
+                                    child: Text(
+                                      data['lastMessage'] ?? "No messages yet",
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
                                   trailing: const Icon(Icons.chevron_right, color: goldColor),

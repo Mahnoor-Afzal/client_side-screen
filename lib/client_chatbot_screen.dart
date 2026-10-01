@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'client_app_config.dart';
 import 'client_lawyer_list_screen.dart';
 
 class ChatbotScreen extends StatefulWidget {
@@ -15,8 +16,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   final List<Map<String, dynamic>> _messages = [];
   bool _isLoading = false;
 
-  // IMPORTANT: Replace with your actual OpenRouter API Key
-  final String _apiKey = "apk key dalni hai";
+  final String _apiKey = AppConfig.openRouterApiKey;
 
   final String systemPrompt = """
 You are an AI Legal Assistant in the Smart Legal Assistant App.
@@ -232,6 +232,7 @@ JSON Response Format (for out-of-scope):
                   controller: _controller,
                   minLines: 1,
                   maxLines: 5, // Input box ko multi-line banane ke liye
+                  textCapitalization: TextCapitalization.sentences,
                   decoration: InputDecoration(
                     hintText: "Describe your legal issue...",
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(30)),

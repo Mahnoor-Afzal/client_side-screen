@@ -89,37 +89,33 @@ class _ChatScreenState extends State<ChatScreen> {
       _activeChatId = cid;
 
       if (cid.isNotEmpty) {
-        List<String> collectionsToTry = [
-          widget.collectionPath,
-          'group_chats',
-          'group_chat',
-          'coordination_requests',
-          'chat'
-        ];
-        collectionsToTry = collectionsToTry.toSet().toList();
-
-        for (String col in collectionsToTry) {
-          try {
-            var doc = await FirebaseFirestore.instance.collection(col).doc(cid).get();
-            if (doc.exists) {
-              var data = doc.data() as Map<String, dynamic>;
-              if (mounted) {
-                setState(() {
-                  _targetCollectionPath = col;
-                  _activeChatId = cid;
-                  _isGroup = col.contains('group') || col.contains('coordination') || (data['isGroup'] == true);
-                });
-              }
-              break;
-            }
-          } catch (e) {
-            debugPrint("Error detecting collection $col: $e");
+        // Optimized: Try the provided collection first, then fallback to others ONLY if needed
+        var doc = await FirebaseFirestore.instance.collection(_targetCollectionPath).doc(cid).get();
+        
+        if (!doc.exists && _targetCollectionPath == 'group_chats') {
+          // Fallback only for specific known alternatives
+          var altDoc = await FirebaseFirestore.instance.collection('chat').doc(cid).get();
+          if (altDoc.exists) {
+            _targetCollectionPath = 'chat';
+          }
+        }
+        
+        if (doc.exists) {
+          var data = doc.data() as Map<String, dynamic>;
+          if (mounted) {
+            setState(() {
+              _isGroup = _targetCollectionPath.contains('group') || (data['isGroup'] == true);
+            });
           }
         }
       }
 
-      await _fetchChatDetails();
-      await _checkCaseStatus();
+      // Parallel fetching for faster startup
+      await Future.wait([
+        _fetchChatDetails(),
+        _checkCaseStatus(),
+      ]);
+      
       _markMessagesAsRead();
       _startChatListener();
     } catch (e) {
@@ -333,8 +329,16 @@ class _ChatScreenState extends State<ChatScreen> {
         .doc(_activeChatId)
         .collection('messages')
         .orderBy('timestamp', descending: true)
+        .limit(1) // Only listen to the latest message change for read marks
         .snapshots()
-        .listen((_) => _markMessagesAsRead());
+        .listen((snapshot) {
+          if (snapshot.docs.isNotEmpty) {
+            var lastMsg = snapshot.docs.first.data();
+            if (lastMsg['receiverId'] == FirebaseAuth.instance.currentUser?.uid && lastMsg['isSeen'] == false) {
+              _markMessagesAsRead();
+            }
+          }
+        });
   }
 
   void _markMessagesAsRead() async {
@@ -378,11 +382,16 @@ class _ChatScreenState extends State<ChatScreen> {
       String senderName = _userNames[currentUserId] ?? _currentUserName;
       String senderRole = _userRoles[currentUserId] ?? "User";
 
-      await FirebaseFirestore.instance
+      // Optimized: Use WriteBatch to send message and update chat head in one go
+      WriteBatch batch = FirebaseFirestore.instance.batch();
+      
+      DocumentReference msgRef = FirebaseFirestore.instance
           .collection(_targetCollectionPath)
           .doc(_activeChatId)
           .collection('messages')
-          .add({
+          .doc();
+
+      batch.set(msgRef, {
         'senderId': currentUserId,
         'receiverId': _isGroup ? null : widget.receiverId,
         'text': messageText,
@@ -391,19 +400,23 @@ class _ChatScreenState extends State<ChatScreen> {
         'isSeen': false,
         'senderName': senderName,
         'senderRole': senderRole,
+        'deletedFor': [],
       });
 
-      await FirebaseFirestore.instance
+      DocumentReference chatRef = FirebaseFirestore.instance
           .collection(_targetCollectionPath)
-          .doc(_activeChatId)
-          .set({
+          .doc(_activeChatId);
+
+      batch.set(chatRef, {
         'lastMessage': messageText,
         'lastMessageTime': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
+      await batch.commit();
+
       if (!_isGroup) {
-        await NotificationHelper.sendPushNotification(widget.receiverId, senderName, messageText, {
+        NotificationHelper.sendPushNotification(widget.receiverId, senderName, messageText, {
           'type': 'chat_message',
           'chatId': _activeChatId,
           'senderId': currentUserId,
@@ -545,15 +558,14 @@ class _ChatScreenState extends State<ChatScreen> {
                     String timeLabel = ts != null ? DateFormat('hh:mm a').format(ts.toDate()) : "";
 
                     String? senderId = data['senderId'];
-                    if (senderId != null) {
-                      _fetchUserName(senderId);
-                    }
+                    // Note: _fetchUserName call removed from build for performance
+                    // Names are pre-loaded in _fetchChatDetails or fetched when new messages arrive
 
-                    String rawRole = (_userRoles[senderId] ?? data['senderRole'] ?? "Client").toString();
+                    String rawRole = (data['senderRole'] ?? _userRoles[senderId] ?? "Client").toString();
                     bool isLawyer = rawRole.toLowerCase() == 'lawyer';
                     String displayRole = isLawyer ? "LAWYER" : "CLIENT";
                     
-                    Color labelColor = isLawyer ? Colors.green : Colors.blue;
+                    Color labelColor = isLawyer ? Colors.green.shade800 : Colors.blue.shade700;
                     Color labelBg = isLawyer ? Colors.green.shade50 : Colors.blue.shade50;
                     Color labelBorder = isLawyer ? Colors.green.shade200 : Colors.blue.shade200;
 

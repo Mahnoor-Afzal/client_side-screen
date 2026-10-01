@@ -269,7 +269,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       label: "Full Name",
                       controller: _nameController,
                       icon: Icons.person_outline,
-                      validator: (val) => val!.isEmpty ? "Enter your name" : null,
+                      capitalization: TextCapitalization.words,
+                      validator: (val) {
+                        if (val == null || val.trim().isEmpty) return "Enter your name";
+                        if (val.trim().length < 3) return "Name too short";
+                        if (!RegExp(r"^[a-zA-Z\s\.-]+$").hasMatch(val)) {
+                          return "Enter alphabets only (e.g. Ali Khan)";
+                        }
+                        return null;
+                      },
                     ),
                     const SizedBox(height: 20),
                     _buildProfileField(
@@ -454,6 +462,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required TextEditingController controller,
     required IconData icon,
     String? hint,
+    TextCapitalization capitalization = TextCapitalization.none,
     String? Function(String?)? validator,
   }) {
     return Column(
@@ -464,6 +473,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         TextFormField(
           controller: controller,
           validator: validator,
+          textCapitalization: capitalization,
           autovalidateMode: AutovalidateMode.onUserInteraction,
           style: const TextStyle(color: Colors.white),
           decoration: InputDecoration(

@@ -138,7 +138,8 @@ Future<bool> isFileDownloaded(String fileName) async {
 }
 
 class CoordinationScreen extends StatefulWidget {
-  const CoordinationScreen({super.key});
+  final int initialTab;
+  const CoordinationScreen({super.key, this.initialTab = 0});
 
   @override
   State<CoordinationScreen> createState() => _CoordinationScreenState();
@@ -160,6 +161,7 @@ class _CoordinationScreenState extends State<CoordinationScreen> {
 
     return DefaultTabController(
       length: 4,
+      initialIndex: widget.initialTab,
       child: Scaffold(
         backgroundColor: const Color(0xFFF5F5F5),
         appBar: AppBar(
@@ -193,7 +195,7 @@ class _CoordinationScreenState extends State<CoordinationScreen> {
                         });
                       },
                       decoration: InputDecoration(
-                        hintText: "Search by name, case, or location...",
+                        hintText: "Search by name",
                         prefixIcon: const Icon(Icons.search),
                         filled: true,
                         fillColor: Colors.white,
@@ -356,6 +358,7 @@ class TeamChatScreen extends StatefulWidget {
 class _TeamChatScreenState extends State<TeamChatScreen> {
   final TextEditingController _msgController = TextEditingController();
   String _currentUserName = "User";
+  String _currentUserRole = "Client";
   Map<String, dynamic>? _replyingToMessage;
 
   @override
@@ -370,12 +373,14 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
       if (doc.exists) {
         setState(() {
           _currentUserName = doc.data()?['fullName'] ?? doc.data()?['name'] ?? "Lawyer";
+          _currentUserRole = "Lawyer";
         });
       } else {
         var userDoc = await FirebaseFirestore.instance.collection('users').doc(widget.currentUid).get();
         if (userDoc.exists) {
           setState(() {
             _currentUserName = userDoc.data()?['fullName'] ?? userDoc.data()?['name'] ?? "Client";
+            _currentUserRole = "Client";
           });
         }
       }
@@ -395,6 +400,7 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
     Map<String, dynamic> messageData = {
       'senderId': widget.currentUid,
       'senderName': _currentUserName,
+      'senderRole': _currentUserRole,
       'message': text,
       'timestamp': FieldValue.serverTimestamp(),
       'deletedFor': [],
@@ -573,6 +579,9 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
 
                         bool isMe = data['senderId'] == widget.currentUid;
                         String senderName = data['senderName'] ?? 'User';
+                        String senderRole = (data['senderRole'] ?? 'Client').toString().toUpperCase();
+                        bool isLawyer = senderRole == 'LAWYER';
+                        
                         bool isDeleted = data['isDeleted'] == true;
                         String messageText = data['message'] ?? data['text'] ?? '';
                         String? replyText = data['replyToMessage'];
@@ -598,13 +607,34 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
                               child: Column(
                                 crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    isMe ? "You" : senderName,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color: isMe ? kGoldColor : Colors.deepPurple,
-                                    ),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: isLawyer ? Colors.green.shade100 : Colors.blue.shade100,
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          senderRole,
+                                          style: TextStyle(
+                                            fontSize: 8,
+                                            fontWeight: FontWeight.bold,
+                                            color: isLawyer ? Colors.green.shade900 : Colors.blue.shade900,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        isMe ? "You" : senderName,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: isMe ? kGoldColor : Colors.black87,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                   const SizedBox(height: 3),
                                   if (replyText != null && replyText.isNotEmpty) ...[
@@ -2375,6 +2405,31 @@ class CaseSelectionDialog extends StatelessWidget {
         'isGroup': true,
         'users': teamMembers, // Contains only lawyers during pending state
         'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // Send Push Notification to Supporting Lawyer
+      await NotificationHelper.sendPushNotification(
+        targetLawyerId,
+        "New Coordination Request",
+        "$senderName has invited you to coordinate on a case for $clientName.",
+        {
+          'type': 'coordination_request',
+          'senderId': currentUid,
+          'caseId': caseId,
+          'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        },
+      );
+
+      // Also add to in-app notifications collection
+      await FirebaseFirestore.instance.collection('notifications').add({
+        'userId': targetLawyerId,
+        'title': 'New Coordination Request',
+        'body': '$senderName has invited you to coordinate on a case for $clientName.',
+        'createdAt': FieldValue.serverTimestamp(),
+        'type': 'coordination_request',
+        'senderId': currentUid,
+        'caseId': caseId,
+        'isRead': false,
       });
 
       if (context.mounted) {

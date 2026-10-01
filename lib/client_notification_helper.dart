@@ -5,6 +5,9 @@ import 'package:http/http.dart' as http;
 import 'client_app_config.dart';
 
 class NotificationHelper {
+  // Static cache to prevent repeated Firestore lookups during active chatting
+  static final Map<String, String> _tokenCache = {};
+
   static Future<void> sendGlobalPushNotification({
     required String token,
     required String title,
@@ -46,20 +49,28 @@ class NotificationHelper {
 
   static Future<void> sendPushNotification(String userId, String title, String body, [Map<String, dynamic>? data]) async {
     try {
-      // Try fetching token from users collection
-      var userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
-      String? token = userDoc.data()?['fcmToken'];
+      // Use cached token if available
+      String? token = _tokenCache[userId];
 
-      // If not found, try verified_lawyers
       if (token == null || token.isEmpty) {
-        var lawyerDoc = await FirebaseFirestore.instance.collection('verified_lawyers').doc(userId).get();
-        token = lawyerDoc.data()?['fcmToken'];
-      }
+        // Try fetching token from users collection
+        var userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
+        token = userDoc.data()?['fcmToken'];
 
-      // If still not found, try lawyers
-      if (token == null || token.isEmpty) {
-        var lawyerDoc = await FirebaseFirestore.instance.collection('lawyers').doc(userId).get();
-        token = lawyerDoc.data()?['fcmToken'];
+        // Fallbacks
+        if (token == null || token.isEmpty) {
+          var lawyerDoc = await FirebaseFirestore.instance.collection('verified_lawyers').doc(userId).get();
+          token = lawyerDoc.data()?['fcmToken'];
+        }
+
+        if (token == null || token.isEmpty) {
+          var lawyerDoc = await FirebaseFirestore.instance.collection('lawyers').doc(userId).get();
+          token = lawyerDoc.data()?['fcmToken'];
+        }
+        
+        if (token != null && token.isNotEmpty) {
+          _tokenCache[userId] = token; // Cache for next time
+        }
       }
 
       if (token != null && token.isNotEmpty) {

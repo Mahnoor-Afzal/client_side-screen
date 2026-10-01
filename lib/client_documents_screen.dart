@@ -400,7 +400,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
                   },
                   style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
-                    hintText: "Search documents by name or sender...",
+                    hintText: "Search document...",
                     hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
                     prefixIcon: const Icon(Icons.search, color: gold),
                     filled: true,

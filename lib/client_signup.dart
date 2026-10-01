@@ -128,8 +128,16 @@ class _ClientSignupScreenState extends State<ClientSignupScreen> {
                   controller: _nameController,
                   label: "Full Name",
                   icon: Icons.person_outline,
-                  hint: "",
-                  validator: (val) => val!.isEmpty ? "Enter your full name" : null,
+                  hint: "Enter your full name",
+                  capitalization: TextCapitalization.words,
+                  validator: (val) {
+                    if (val == null || val.trim().isEmpty) return "Enter your full name";
+                    if (val.trim().length < 3) return "Name too short";
+                    if (!RegExp(r"^[a-zA-Z\s\.-]+$").hasMatch(val)) {
+                      return "Enter alphabets only (e.g. Ali Khan)";
+                    }
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 25),
 
@@ -241,6 +249,7 @@ class _ClientSignupScreenState extends State<ClientSignupScreen> {
     required IconData icon,
     bool isPassword = false,
     bool obscureText = false,
+    TextCapitalization capitalization = TextCapitalization.none,
     VoidCallback? onToggleVisibility,
     String? Function(String?)? validator,
   }) {
@@ -253,6 +262,7 @@ class _ClientSignupScreenState extends State<ClientSignupScreen> {
           controller: controller,
           obscureText: obscureText,
           validator: validator,
+          textCapitalization: capitalization,
           autovalidateMode: AutovalidateMode.onUserInteraction,
           style: const TextStyle(color: Colors.white),
           decoration: InputDecoration(
