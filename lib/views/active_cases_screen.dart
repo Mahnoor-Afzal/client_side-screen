@@ -232,7 +232,7 @@ class _ActiveCasesScreenState extends State<ActiveCasesScreen> {
                 ),
                 IconButton(
                   icon: Icon(Icons.group_add_rounded, color: goldColor, size: 28),
-                  onPressed: null, // Pop-up disable karne ke liye
+                  onPressed: () => _showAddLawyerDialog(context, id, name, type, clientId),
                 ),
               ],
             ),

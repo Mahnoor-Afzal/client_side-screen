@@ -6,7 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:signature/signature.dart';
-import 'client_notification_helper.dart';
+import '../utils/client_notification_helper.dart';
 import 'package:http/http.dart' as http;
 
 class WakalatnamaForm extends StatefulWidget {

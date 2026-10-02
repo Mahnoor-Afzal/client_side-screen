@@ -4,11 +4,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http; // Naya import
 import 'dart:convert'; // Naya import
 import 'client_chat_screen.dart';
-import 'client_pdf_helper.dart';
-import 'client_notification_helper.dart';
+import '../utils/client_pdf_helper.dart';
+import '../utils/client_notification_helper.dart';
 import 'package:cloudinary_public/cloudinary_public.dart';
 import 'dart:typed_data';
-import 'client_app_config.dart';
+import '../utils/client_app_config.dart';
 
 class LawyerRequestsScreen extends StatefulWidget {
   const LawyerRequestsScreen({super.key});

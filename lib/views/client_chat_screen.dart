@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
-import 'client_notification_helper.dart';
+import '../utils/client_notification_helper.dart';
+import '../services/chat_service.dart';
 
 class ChatScreen extends StatefulWidget {
   final String receiverName;
@@ -26,11 +27,11 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
+  final ChatService _chatService = ChatService();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   String _currentUserName = "User";
   String? _dynamicTitle;
-  StreamSubscription? _chatSubscription;
   StreamSubscription? _statusSubscription;
   late bool _isGroup;
   late String _targetCollectionPath;
@@ -38,7 +39,6 @@ class _ChatScreenState extends State<ChatScreen> {
   List<dynamic> _groupUsers = [];
   final Map<String, String> _userNames = {};
   final Map<String, String> _userRoles = {};
-  final Set<String> _pendingFetches = {};
   bool _isCaseClosed = false;
   bool _isLoading = true;
 
@@ -116,8 +116,9 @@ class _ChatScreenState extends State<ChatScreen> {
         _checkCaseStatus(),
       ]);
       
-      _markMessagesAsRead();
-      _startChatListener();
+      if (_activeChatId.isNotEmpty) {
+        _chatService.markAsRead(_activeChatId, _targetCollectionPath);
+      }
     } catch (e) {
       debugPrint("Chat init error: $e");
     } finally {
@@ -130,93 +131,16 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _checkCaseStatus() async {
-    String? reqId = widget.requestId;
-    
-    // 1. Try to find requestId from the chat document itself if not provided
-    if (reqId == null || reqId.isEmpty) {
-      try {
-        var chatDoc = await FirebaseFirestore.instance.collection(_targetCollectionPath).doc(_activeChatId).get();
-        if (chatDoc.exists) {
-          var data = chatDoc.data() as Map<String, dynamic>;
-          reqId = data['requestId'] ?? data['caseId'] ?? data['case_id'];
-        }
-      } catch (e) {
-        debugPrint("Error fetching reqId from chat: $e");
-      }
-    }
-
-    final String finalReqId = reqId ?? _activeChatId;
-    if (finalReqId.isEmpty) return;
-
-    void updateStatus(String? status) {
-      if (status == null) return;
-      String s = status.toLowerCase();
-      if (mounted) {
-        setState(() {
-          _isCaseClosed = (s == 'closed' || s == 'completed');
-        });
-      }
-    }
-
-    try {
-      // 2. Check in suit_a_file_request (handles both direct and team chats linked to this collection)
-      var directDoc = await FirebaseFirestore.instance.collection('suit_a_file_request').doc(finalReqId).get();
-      if (directDoc.exists) {
-        updateStatus(directDoc.data()?['status']);
-        _statusSubscription?.cancel();
-        _statusSubscription = directDoc.reference.snapshots().listen((snap) => updateStatus(snap.data()?['status']));
-        return;
-      }
-
-      // Check by chatId inside suit_a_file_request as a fallback
-      var chatQuery = await FirebaseFirestore.instance.collection('suit_a_file_request')
-          .where('chatId', isEqualTo: _activeChatId).limit(1).get();
-      if (chatQuery.docs.isNotEmpty) {
-        updateStatus(chatQuery.docs.first.data()['status']);
-        _statusSubscription?.cancel();
-        _statusSubscription = chatQuery.docs.first.reference.snapshots().listen((snap) => updateStatus(snap.data()?['status']));
-        return;
-      }
-
-      // Special check for direct chats: find suit_a_file_request by participants
-      if (!_isGroup) {
-        final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-        if (currentUserId != null && widget.receiverId.isNotEmpty) {
-          var participantQuery = await FirebaseFirestore.instance.collection('suit_a_file_request')
-              .where('clientId', isEqualTo: currentUserId)
-              .where('lawyerId', isEqualTo: widget.receiverId)
-              .limit(1).get();
-          
-          if (participantQuery.docs.isEmpty) {
-            participantQuery = await FirebaseFirestore.instance.collection('suit_a_file_request')
-                .where('clientId', isEqualTo: widget.receiverId)
-                .where('lawyerId', isEqualTo: currentUserId)
-                .limit(1).get();
-          }
-
-          if (participantQuery.docs.isNotEmpty) {
-            updateStatus(participantQuery.docs.first.data()['status']);
-            _statusSubscription?.cancel();
-            _statusSubscription = participantQuery.docs.first.reference.snapshots().listen((snap) => updateStatus(snap.data()?['status']));
-            return;
-          }
-        }
-      }
-
-      // 3. Check coordination_requests for Team Chat
-      var coordDoc = await FirebaseFirestore.instance.collection('coordination_requests').doc(finalReqId).get();
-      if (!coordDoc.exists && finalReqId != _activeChatId) {
-        coordDoc = await FirebaseFirestore.instance.collection('coordination_requests').doc(_activeChatId).get();
-      }
-
-      if (coordDoc.exists) {
-        updateStatus(coordDoc.data()?['status']);
-        _statusSubscription?.cancel();
-        _statusSubscription = coordDoc.reference.snapshots().listen((snap) => updateStatus(snap.data()?['status']));
-      }
-    } catch (e) {
-      debugPrint("Error checking case status: $e");
-    }
+    _statusSubscription?.cancel();
+    _statusSubscription = _chatService
+        .getCaseStatusStream(
+          _activeChatId,
+          _targetCollectionPath,
+          requestId: widget.requestId,
+        )
+        .listen((isClosed) {
+      if (mounted) setState(() => _isCaseClosed = isClosed);
+    });
   }
 
   Future<void> _fetchChatDetails() async {
@@ -245,186 +169,55 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _fetchUserName(String uid) async {
-    // If already known as lawyer or currently fetching, skip
-    if (_userRoles[uid] == "Lawyer" || _pendingFetches.contains(uid)) return;
-    
-    _pendingFetches.add(uid);
-    try {
-      // 1. Try 'verified_lawyers' (plural - as seen in Firestore screenshot)
-      var lawyerDoc = await FirebaseFirestore.instance.collection('verified_lawyers').doc(uid).get();
-      
-      // 2. Try 'verified_lawyer' (singular - as mentioned in prompt) if plural fails
-      if (!lawyerDoc.exists) {
-        lawyerDoc = await FirebaseFirestore.instance.collection('verified_lawyer').doc(uid).get();
-      }
-
-      if (lawyerDoc.exists) {
-        var data = lawyerDoc.data() as Map<String, dynamic>;
-        if (mounted) {
-          setState(() {
-            _userNames[uid] = data['fullName'] ?? data['name'] ?? "Lawyer";
-            _userRoles[uid] = "Lawyer";
-          });
-        }
-        return;
-      }
-
-      // 3. Only if not found in lawyers, check the 'users' collection
-      if (!_userNames.containsKey(uid) || _userRoles[uid] == null) {
-        var doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-        if (doc.exists) {
-          var data = doc.data() as Map<String, dynamic>;
-          if (mounted) {
-            setState(() {
-              _userNames[uid] = data['name'] ?? data['fullName'] ?? "User";
-              _userRoles[uid] = "Client";
-            });
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint("Error fetching user name: $e");
-    } finally {
-      _pendingFetches.remove(uid);
+    final profile = await _chatService.getUserProfile(uid);
+    if (profile != null && mounted) {
+      setState(() {
+        _userNames[uid] = profile['fullName'] ?? profile['name'] ?? "User";
+        _userRoles[uid] = profile['role'] ?? (profile.containsKey('lawyerId') ? "Lawyer" : "Client");
+      });
     }
   }
 
   Future<void> _fetchCurrentUserName() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      // Check lawyers first for the current user too
-      var lawyerDoc = await FirebaseFirestore.instance.collection('verified_lawyers').doc(user.uid).get();
-      if (!lawyerDoc.exists) {
-        lawyerDoc = await FirebaseFirestore.instance.collection('verified_lawyer').doc(user.uid).get();
-      }
-
-      if (lawyerDoc.exists) {
-        if (mounted) {
-          setState(() {
-            _currentUserName = lawyerDoc.data()?['fullName'] ?? lawyerDoc.data()?['name'] ?? "Lawyer";
-            _userRoles[user.uid] = "Lawyer";
-            _userNames[user.uid] = _currentUserName;
-          });
-        }
-        return;
-      }
-
-      var doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      if (doc.exists) {
-        if (mounted) {
-          setState(() {
-            _currentUserName = doc.data()?['name'] ?? doc.data()?['fullName'] ?? "User";
-            _userRoles[user.uid] = "Client";
-            _userNames[user.uid] = _currentUserName;
-          });
-        }
-      }
-    }
-  }
-
-  void _startChatListener() {
-    if (_activeChatId.isEmpty) return;
-    _chatSubscription = FirebaseFirestore.instance
-        .collection(_targetCollectionPath)
-        .doc(_activeChatId)
-        .collection('messages')
-        .orderBy('timestamp', descending: true)
-        .limit(1) // Only listen to the latest message change for read marks
-        .snapshots()
-        .listen((snapshot) {
-          if (snapshot.docs.isNotEmpty) {
-            var lastMsg = snapshot.docs.first.data();
-            if (lastMsg['receiverId'] == FirebaseAuth.instance.currentUser?.uid && lastMsg['isSeen'] == false) {
-              _markMessagesAsRead();
-            }
-          }
+    final uid = _chatService.currentUserId;
+    if (uid != null) {
+      final profile = await _chatService.getUserProfile(uid);
+      if (profile != null && mounted) {
+        setState(() {
+          _currentUserName = profile['fullName'] ?? profile['name'] ?? "User";
+          _userNames[uid] = _currentUserName;
+          _userRoles[uid] = profile['role'] ?? "Client";
         });
-  }
-
-  void _markMessagesAsRead() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null || _activeChatId.isEmpty) return;
-
-    try {
-      var unreadMessages = await FirebaseFirestore.instance
-          .collection(_targetCollectionPath)
-          .doc(_activeChatId)
-          .collection('messages')
-          .where('receiverId', isEqualTo: user.uid)
-          .where('isSeen', isEqualTo: false)
-          .get();
-
-      WriteBatch batch = FirebaseFirestore.instance.batch();
-      for (var doc in unreadMessages.docs) {
-        batch.update(doc.reference, {'isSeen': true});
       }
-      await batch.commit();
-
-      await FirebaseFirestore.instance
-          .collection(_targetCollectionPath)
-          .doc(_activeChatId)
-          .update({'unreadCount.${user.uid}': 0});
-    } catch (e) {
-      debugPrint("Error marking read: $e");
     }
   }
 
   void _sendMessage() async {
-    if (_isCaseClosed) return;
+    if (_isCaseClosed || _messageController.text.trim().isEmpty) return;
 
-    final String currentUserId = FirebaseAuth.instance.currentUser?.uid ?? "";
-    if (_messageController.text.trim().isEmpty || currentUserId.isEmpty) return;
-
+    final String currentUserId = _chatService.currentUserId ?? "";
     String messageText = _messageController.text.trim();
     _messageController.clear();
 
-    try {
-      String senderName = _userNames[currentUserId] ?? _currentUserName;
-      String senderRole = _userRoles[currentUserId] ?? "User";
+    String senderName = _userNames[currentUserId] ?? _currentUserName;
+    String senderRole = _userRoles[currentUserId] ?? "User";
 
-      // Optimized: Use WriteBatch to send message and update chat head in one go
-      WriteBatch batch = FirebaseFirestore.instance.batch();
-      
-      DocumentReference msgRef = FirebaseFirestore.instance
-          .collection(_targetCollectionPath)
-          .doc(_activeChatId)
-          .collection('messages')
-          .doc();
+    await _chatService.sendMessage(
+      chatId: _activeChatId,
+      text: messageText,
+      senderName: senderName,
+      senderRole: senderRole,
+      targetCollection: _targetCollectionPath,
+      receiverId: _isGroup ? null : widget.receiverId,
+    );
 
-      batch.set(msgRef, {
+    if (!_isGroup) {
+      NotificationHelper.sendPushNotification(widget.receiverId, senderName, messageText, {
+        'type': 'chat_message',
+        'chatId': _activeChatId,
         'senderId': currentUserId,
-        'receiverId': _isGroup ? null : widget.receiverId,
-        'text': messageText,
-        'message': messageText,
-        'timestamp': FieldValue.serverTimestamp(),
-        'isSeen': false,
         'senderName': senderName,
-        'senderRole': senderRole,
-        'deletedFor': [],
       });
-
-      DocumentReference chatRef = FirebaseFirestore.instance
-          .collection(_targetCollectionPath)
-          .doc(_activeChatId);
-
-      batch.set(chatRef, {
-        'lastMessage': messageText,
-        'lastMessageTime': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      await batch.commit();
-
-      if (!_isGroup) {
-        NotificationHelper.sendPushNotification(widget.receiverId, senderName, messageText, {
-          'type': 'chat_message',
-          'chatId': _activeChatId,
-          'senderId': currentUserId,
-          'senderName': senderName,
-        });
-      }
-    } catch (e) {
-      debugPrint("Error sending message: $e");
     }
   }
 
@@ -434,53 +227,38 @@ class _ChatScreenState extends State<ChatScreen> {
       builder: (context) => AlertDialog(
         title: const Text("Delete Message"),
         content: Text(isMe
-            ? "Delete message?"
-            : "Do you want to delete this message?"),
+            ? "Choose how you want to delete this message:"
+            : "Do you want to delete this message for yourself?"),
         actions: [
-          if (isMe) ...[
-            TextButton(
-              onPressed: () async {
-                Navigator.pop(context);
-                try {
-                  await doc.reference.delete();
-                } catch (e) {
-                  debugPrint("Error deleting for everyone: $e");
-                }
-              },
-              child: const Text("Delete from everyone", style: TextStyle(color: Colors.red)),
-            ),
-            TextButton(
-              onPressed: () async {
-                Navigator.pop(context);
-                try {
-                  await doc.reference.update({
-                    'deletedFor': FieldValue.arrayUnion([FirebaseAuth.instance.currentUser?.uid])
-                  });
-                } catch (e) {
-                  debugPrint("Error deleting for me: $e");
-                }
-              },
-              child: const Text("Delete from me", style: TextStyle(color: Colors.red)),
-            ),
-          ] else ...[
-            TextButton(
-              onPressed: () async {
-                Navigator.pop(context);
-                try {
-                  await doc.reference.update({
-                    'deletedFor': FieldValue.arrayUnion([FirebaseAuth.instance.currentUser?.uid])
-                  });
-                } catch (e) {
-                  debugPrint("Error deleting message: $e");
-                }
-              },
-              child: const Text("Delete", style: TextStyle(color: Colors.red)),
-            ),
-          ],
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text("Cancel"),
           ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _chatService.deleteMessage(
+                chatId: _activeChatId,
+                messageId: doc.id,
+                targetCollection: _targetCollectionPath,
+                forEveryone: false,
+              );
+            },
+            child: Text(isMe ? "Delete for me" : "Delete", style: const TextStyle(color: Colors.red)),
+          ),
+          if (isMe)
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                await _chatService.deleteMessage(
+                  chatId: _activeChatId,
+                  messageId: doc.id,
+                  targetCollection: _targetCollectionPath,
+                  forEveryone: true,
+                );
+              },
+              child: const Text("Delete for everyone", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+            ),
         ],
       ),
     );
@@ -488,7 +266,6 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
-    _chatSubscription?.cancel();
     _statusSubscription?.cancel();
     _messageController.dispose();
     _scrollController.dispose();
@@ -539,16 +316,24 @@ class _ChatScreenState extends State<ChatScreen> {
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                 var docs = snapshot.data!.docs;
+
+                // Mark messages as read when they arrive
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (docs.isNotEmpty) {
+                    _chatService.markAsRead(_activeChatId, _targetCollectionPath);
+                  }
+                });
+
                 return ListView.builder(
                   reverse: true,
                   controller: _scrollController,
                   itemCount: docs.length,
                   padding: const EdgeInsets.symmetric(vertical: 10),
                   itemBuilder: (context, index) {
-                    var data = docs[index].data() as Map<String, dynamic>;
-                    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+                    var doc = docs[index];
+                    var data = doc.data() as Map<String, dynamic>;
+                    final currentUserId = _chatService.currentUserId;
                     
-                    // Filter messages deleted for this user
                     if ((data['deletedFor'] as List?)?.contains(currentUserId) ?? false) {
                       return const SizedBox.shrink();
                     }

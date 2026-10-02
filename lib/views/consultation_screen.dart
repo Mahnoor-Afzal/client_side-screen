@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:rxdart/rxdart.dart';
+import '../services/chat_service.dart';
 import 'chat_screen.dart';
 
 class ConsultationScreen extends StatefulWidget {
@@ -14,6 +16,56 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
   final Color navyBlue = const Color(0xFF101D3D);
   final Color goldColor = const Color(0xFFC5A358);
   final String? currentLawyerId = FirebaseAuth.instance.currentUser?.uid;
+  final ChatService _chatService = ChatService();
+  
+  // Streams ko cache karne ke liye variables
+  Stream<List<QueryDocumentSnapshot>>? _requestsStream;
+  Stream<QuerySnapshot>? _chatsStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _initStreams();
+  }
+
+  void _initStreams() {
+    if (currentLawyerId == null) return;
+
+    // Firestore streams ko broadcast banaya taaki multiple components ise listen kar sakein
+    final s1 = FirebaseFirestore.instance
+        .collection('consultation_request')
+        .where('lawyerId', isEqualTo: currentLawyerId)
+        .where('status', isEqualTo: 'Pending')
+        .snapshots();
+
+    final s2 = FirebaseFirestore.instance
+        .collection('suit_a_file_request')
+        .where('lawyerId', isEqualTo: currentLawyerId)
+        .where('status', isEqualTo: 'Pending')
+        .snapshots();
+
+    _requestsStream = Rx.combineLatest2(
+      s1, 
+      s2, 
+      (QuerySnapshot snap1, QuerySnapshot snap2) {
+        List<QueryDocumentSnapshot> combined = [...snap1.docs, ...snap2.docs];
+        combined.sort((a, b) {
+          var da = (a.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
+          var db = (b.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
+          if (da == null) return 1;
+          if (db == null) return -1;
+          return db.compareTo(da); // Newest first
+        });
+        return combined;
+      }
+    ).asBroadcastStream();
+
+    _chatsStream = FirebaseFirestore.instance
+        .collection('chat')
+        .where('users', arrayContains: currentLawyerId)
+        .snapshots()
+        .asBroadcastStream();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,40 +97,42 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     );
   }
 
-  // Requests Tab: Showing pending requests from 'consultation_request'
   Widget _buildRequestList() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('consultation_request')
-          .where('lawyerId', isEqualTo: currentLawyerId)
-          .where('status', isEqualTo: 'Pending')
-          .snapshots(),
+    return StreamBuilder<List<QueryDocumentSnapshot>>(
+      stream: _requestsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return _buildEmptyState("pending requests");
         }
 
+        final allRequests = snapshot.data!;
+
         return ListView.builder(
           padding: const EdgeInsets.all(12),
-          itemCount: snapshot.data!.docs.length,
+          itemCount: allRequests.length,
           itemBuilder: (context, index) {
-            var doc = snapshot.data!.docs[index];
+            var doc = allRequests[index];
             var data = doc.data() as Map<String, dynamic>;
+            String type = data['type'] ?? "Consultation";
+            String collection = doc.reference.parent.id;
 
             return Card(
               margin: const EdgeInsets.only(bottom: 12),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
               child: ListTile(
                 contentPadding: const EdgeInsets.all(16),
-                leading: CircleAvatar(backgroundColor: navyBlue, child: const Icon(Icons.person, color: Colors.white)),
-                title: Text(data['clientName'] ?? "Javeria", style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: const Text("Consultation Requested"),
+                leading: CircleAvatar(
+                  backgroundColor: type == "Consultation" ? navyBlue : Colors.deepOrange,
+                  child: Icon(type == "Consultation" ? Icons.chat : Icons.gavel, color: Colors.white)
+                ),
+                title: Text(data['clientName'] ?? "Client", style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Text("$type Requested"),
                 trailing: ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-                  onPressed: () => _acceptConsultation(doc.id, data),
+                  onPressed: () => _acceptConsultation(doc.id, data, collection),
                   child: const Text("Accept"),
                 ),
               ),
@@ -89,27 +143,23 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     );
   }
 
-  // Ongoing Tab: Showing ONLY consultation chats from 'chat' collection
   Widget _buildOngoingList() {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('chat')
-          .where('users', arrayContains: currentLawyerId)
-          .snapshots(),
+      stream: _chatsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
+        
         final docs = snapshot.data?.docs.where((doc) {
           var data = doc.data() as Map<String, dynamic>;
           String status = (data['status'] ?? "").toString().toLowerCase();
           String type = (data['type'] ?? "").toString().toLowerCase();
 
-          // Strictly allow ONLY consultation chats
-          bool isConsultation = type == 'consultation';
+          bool isLegalChat = type == 'consultation' || type == 'suit' || type == 'file a suit';
           bool isActive = status == 'active' || status == 'ongoing' || status == 'accepted';
 
-          return isConsultation && isActive;
+          return isLegalChat && isActive;
         }).toList() ?? [];
 
         if (docs.isEmpty) return _buildEmptyState("ongoing chats");
@@ -179,23 +229,13 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     );
   }
 
-  Future<void> _acceptConsultation(String docId, Map<String, dynamic> data) async {
+  Future<void> _acceptConsultation(String docId, Map<String, dynamic> data, String collection) async {
     try {
-      await FirebaseFirestore.instance.collection('consultation_request').doc(docId).update({
-        'status': 'Accepted',
-      });
-
-      await FirebaseFirestore.instance.collection('chat').doc(docId).set({
-        'lawyerid': currentLawyerId,
-        'lawyerId': currentLawyerId,
-        'clientId': data['clientId'],
-        'clientName': data['clientName'],
-        'status': 'Active',
-        'type': 'consultation',
-        'lastMessage': 'Consultation started',
-        'updatedAt': FieldValue.serverTimestamp(),
-        'users': [data['clientId'], currentLawyerId],
-      }, SetOptions(merge: true));
+      await _chatService.acceptConsultation(
+        docId: docId,
+        data: data,
+        collection: collection,
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Accepted! Opening chat..."), backgroundColor: Colors.green));
@@ -204,7 +244,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
           MaterialPageRoute(
             builder: (context) => ChatScreen(
               consultationId: docId,
-              clientName: data['clientName'] ?? "Javeria",
+              clientName: data['clientName'] ?? "Client",
               clientId: data['clientId'],
             ),
           ),

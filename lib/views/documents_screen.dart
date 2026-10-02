@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart'; // Web platform checking
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -8,13 +7,13 @@ import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'wakalatnama_form.dart';
-import 'client_notification_helper.dart';
+import '../utils/client_notification_helper.dart';
 
 // Cross-platform document download/open. The IO implementation (mobile/desktop)
 // streams to storage and opens natively via open_filex; the web implementation
 // triggers a browser download. The correct one is selected at compile time.
-import 'document_downloader_io.dart'
-    if (dart.library.html) 'document_downloader_web.dart' as downloader;
+import '../utils/document_downloader_io.dart'
+    if (dart.library.html) '../utils/document_downloader_web.dart' as downloader;
 
 class DocumentsScreen extends StatefulWidget {
   const DocumentsScreen({super.key});
@@ -459,8 +458,6 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
           String cId = (data['clientId'] ?? data['clientid'] ?? data['userId'] ?? "").toString().trim();
           String rId = (data['receiverId'] ?? "").toString().trim();
           String sId = (data['senderId'] ?? "").toString().trim();
-          String senderType = (data['senderType'] ?? "").toString().toLowerCase();
-          String uploadedByRole = (data['uploadedByRole'] ?? "").toString().toLowerCase();
 
           List assigned = [];
           if (data['assignedLawyers'] is List) assigned.addAll(data['assignedLawyers']);

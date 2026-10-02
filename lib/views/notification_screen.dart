@@ -6,8 +6,7 @@ import 'package:intl/intl.dart';
 
 // Adjust imports as per your actual file directory
 import 'case_request_screen.dart';
-import 'messages_list_screen.dart';
-import 'Hearing_details.dart';
+import 'hearing_details.dart';
 import 'documents_screen.dart';
 import 'consultation_screen.dart';
 import 'chat_screen.dart';
@@ -386,7 +385,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
     String consultationId = item['consultationId'] ?? item['requestId'] ?? item['docId'] ?? '';
 
-    // 1. TEAM CHAT / COORDINATION: Navigation to TeamChatScreen
+    // 1. TEAM CHAT / COORDINATION: Navigation to ChatScreen (with group settings)
     // Higher priority check for team-related keywords
     if (chatType == 'team' || 
         type == 'team_chat' || 
@@ -400,10 +399,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => TeamChatScreen(
-              caseId: caseId,
+            builder: (_) => ChatScreen(
               clientName: clientName,
-              currentUid: uid ?? '',
+              consultationId: caseId,
+              collectionPath: 'group_chats',
             ),
           ),
         );
@@ -417,9 +416,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
         context,
         MaterialPageRoute(
           builder: (_) => ChatScreen(
-            clientId: clientId,
             clientName: clientName,
+            clientId: clientId,
             consultationId: consultationId,
+            collectionPath: 'chat',
           ),
         ),
       );

@@ -6,9 +6,9 @@ import 'package:cloudinary_public/cloudinary_public.dart';
 import 'dart:typed_data';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'client_pdf_helper.dart';
-import 'client_app_config.dart';
-import 'client_notification_helper.dart';
+import '../utils/client_pdf_helper.dart';
+import '../utils/client_app_config.dart';
+import '../utils/client_notification_helper.dart';
 
 class SignatureScreen extends StatefulWidget {
   final String? docId;

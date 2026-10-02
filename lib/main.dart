@@ -5,16 +5,19 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:provider/provider.dart';
 import 'dart:async';
-import 'firebase_options.dart';
-import 'client_login_screen.dart';
-import 'client_dashboard.dart';
-import 'splash_screen.dart';
-import 'lawyer_login_screen.dart';
-import 'Lawyer_dashboard.dart';
-import 'signup_screen.dart';
-import 'login_selection_screen.dart';
-import 'lawyer_pending_screen.dart';
+import 'view_models/coordination_view_model.dart';
+import 'view_models/chatbot_view_model.dart';
+import 'utils/firebase_options.dart';
+import 'views/client_login_screen.dart';
+import 'views/client_dashboard.dart';
+import 'views/splash_screen.dart';
+import 'views/lawyer_login_screen.dart';
+import 'views/lawyer_dashboard.dart';
+import 'views/signup_screen.dart';
+import 'views/login_selection_screen.dart';
+import 'views/lawyer_pending_screen.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
@@ -90,7 +93,15 @@ void main() async {
     debugPrint("Firebase Init Error: $e");
   }
 
-  runApp(const LegalAssistantApp());
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => CoordinationViewModel()),
+        ChangeNotifierProvider(create: (_) => ChatbotViewModel()),
+      ],
+      child: const LegalAssistantApp(),
+    ),
+  );
 }
 
 class LegalAssistantApp extends StatelessWidget {

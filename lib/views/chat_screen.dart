@@ -1,7 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import '../services/chat_service.dart';
 
 class ChatScreen extends StatefulWidget {
   final String consultationId;
@@ -22,107 +23,88 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
+  final ChatService _chatService = ChatService();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   String? _lawyerName;
   Map<String, dynamic>? _replyMessage;
   bool _isCaseClosed = false;
+  StreamSubscription? _statusSubscription;
 
-  String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
+  String? get currentUserId => _chatService.currentUserId;
 
   bool get isGroupChat => widget.collectionPath != null && widget.collectionPath!.isNotEmpty;
 
-  String get effectiveChatId {
-    if (!isGroupChat && widget.clientId != null && widget.clientId!.isNotEmpty && currentUserId != null) {
-      List<String> ids = [currentUserId!, widget.clientId!];
-      ids.sort();
-      return ids.join('_');
-    }
-    return widget.consultationId.trim();
-  }
+  String get effectiveChatId => widget.consultationId.trim();
 
   CollectionReference<Map<String, dynamic>> get _messagesRef {
-    if (isGroupChat) {
-      return FirebaseFirestore.instance.collection(widget.collectionPath!);
-    }
-    return FirebaseFirestore.instance
-        .collection('chat')
-        .doc(effectiveChatId)
-        .collection('messages');
+    String path = isGroupChat ? widget.collectionPath! : 'chat/$effectiveChatId/messages';
+    return FirebaseFirestore.instance.collection(path);
   }
 
   @override
   void initState() {
     super.initState();
-    _fetchLawyerName();
+    _loadProfile();
     _checkCaseStatus();
   }
 
-  void _checkCaseStatus() {
-    FirebaseFirestore.instance
-        .collection('suit_a_file_request')
-        .doc(widget.consultationId.trim())
-        .snapshots()
-        .listen((doc) {
-      if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>;
-        if (data['status'] == 'closed') {
-          if (mounted) {
-            setState(() {
-              _isCaseClosed = true;
-            });
-          }
-        }
-      }
-    });
-  }
-
-  void _markMessagesAsRead(List<QueryDocumentSnapshot> docs) async {
+  void _loadProfile() async {
     if (currentUserId == null) return;
-
-    WriteBatch batch = FirebaseFirestore.instance.batch();
-    bool hasUpdates = false;
-
-    for (var doc in docs) {
-      final data = doc.data() as Map<String, dynamic>;
-      final String senderId = data['senderId'] ?? '';
-      final bool isRead = data['isRead'] ?? false;
-      final List readBy = List.from(data['readBy'] ?? []);
-
-      if (senderId != currentUserId && (!isRead || !readBy.contains(currentUserId))) {
-        DocumentReference msgRef = _messagesRef.doc(doc.id);
-
-        batch.update(msgRef, {
-          'isRead': true,
-          'readBy': FieldValue.arrayUnion([currentUserId]),
-        });
-        hasUpdates = true;
-      }
-    }
-
-    if (hasUpdates) {
-      await batch.commit().catchError((e) => debugPrint("Batch mark read error: $e"));
-      if (!isGroupChat) {
-        FirebaseFirestore.instance.collection('chat').doc(effectiveChatId).update({
-          'isRead': true,
-        }).catchError((e) => debugPrint("Chat doc read error: $e"));
-      }
-    }
-  }
-
-  void _fetchLawyerName() async {
-    if (currentUserId == null) return;
-    var doc = await FirebaseFirestore.instance.collection('lawyers').doc(currentUserId).get();
-    if (doc.exists) {
+    final profile = await _chatService.getUserProfile(currentUserId!);
+    if (profile != null && mounted) {
       setState(() {
-        _lawyerName = doc.data()?['fullName'] ?? doc.data()?['name'] ?? "Lawyer";
+        _lawyerName = profile['fullName'] ?? profile['name'] ?? "Lawyer";
       });
     }
   }
 
+  void _checkCaseStatus() {
+    _statusSubscription?.cancel();
+    _statusSubscription = _chatService
+        .getCaseStatusStream(
+          effectiveChatId,
+          isGroupChat ? widget.collectionPath!.split('/')[0] : 'chat',
+          requestId: widget.consultationId.trim(),
+        )
+        .listen((isClosed) {
+      if (mounted) setState(() => _isCaseClosed = isClosed);
+    });
+  }
+
+  @override
+  void dispose() {
+    _statusSubscription?.cancel();
+    _messageController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _closeChat() async {
+    bool confirm = await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Close Chat?"),
+        content: const Text("Once closed, no further messages can be sent by you or the client."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("Close", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    ) ?? false;
+
+    if (!confirm) return;
+    await _chatService.closeCase(effectiveChatId, widget.consultationId.trim());
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chat closed"), backgroundColor: Colors.redAccent));
+    }
+  }
+
   void _sendMessage() async {
-    if (_isCaseClosed) return;
-    if (_messageController.text.trim().isEmpty || currentUserId == null) return;
+    if (_isCaseClosed || _messageController.text.trim().isEmpty) return;
 
     final String text = _messageController.text.trim();
     final Map<String, dynamic>? replyData = _replyMessage;
@@ -130,64 +112,38 @@ class _ChatScreenState extends State<ChatScreen> {
     _messageController.clear();
     setState(() => _replyMessage = null);
 
-    try {
-      await _messagesRef.add({
-        'text': text,
-        'senderId': currentUserId,
-        'senderName': _lawyerName ?? "Lawyer",
-        'timestamp': FieldValue.serverTimestamp(),
-        'deletedFor': [],
-        'isDeletedForEveryone': false,
-        'isRead': false,
-        'readBy': [currentUserId],
-        'replyTo': replyData != null ? {
-          'text': replyData['text'],
-          'senderName': replyData['senderName'],
-        } : null,
-      });
-
-      if (!isGroupChat) {
-        DocumentReference chatDoc = FirebaseFirestore.instance.collection('chat').doc(effectiveChatId);
-        await chatDoc.set({
-          'lastMessage': text,
-          'lastMessageTime': FieldValue.serverTimestamp(),
-          'lastSenderId': currentUserId,
-          'isRead': false,
-          'readBy': [currentUserId],
-          'updatedAt': FieldValue.serverTimestamp(),
-          'users': FieldValue.arrayUnion([currentUserId, widget.clientId]),
-          'clientName': widget.clientName,
-          'status': 'Active',
-        }, SetOptions(merge: true));
-      }
-
-      _scrollToBottom();
-    } catch (e) {
-      debugPrint("Chat Sync Error: $e");
-    }
+    await _chatService.sendMessage(
+      chatId: effectiveChatId,
+      text: text,
+      senderName: _lawyerName ?? "Lawyer",
+      senderRole: "Lawyer",
+      targetCollection: isGroupChat ? widget.collectionPath!.split('/')[0] : 'chat',
+      receiverId: widget.clientId,
+      replyTo: replyData != null ? {'text': replyData['text'], 'senderName': replyData['senderName']} : null,
+      extraChatData: isGroupChat ? null : {
+        'users': FieldValue.arrayUnion([currentUserId, widget.clientId]),
+        'clientName': widget.clientName,
+      },
+    );
+    _scrollToBottom();
   }
 
   void _deleteForMe(String messageId) async {
-    if (currentUserId == null) return;
-    try {
-      await _messagesRef.doc(messageId).update({
-        'deletedFor': FieldValue.arrayUnion([currentUserId]),
-      });
-    } catch (e) {
-      debugPrint("Delete For Me Error: $e");
-    }
+    await _chatService.deleteMessage(
+      chatId: effectiveChatId,
+      messageId: messageId,
+      targetCollection: isGroupChat ? widget.collectionPath!.split('/')[0] : 'chat',
+      forEveryone: false,
+    );
   }
 
   void _deleteForEveryone(String messageId) async {
-    try {
-      await _messagesRef.doc(messageId).update({
-        'text': 'This message was deleted',
-        'isDeletedForEveryone': true,
-        'replyTo': null,
-      });
-    } catch (e) {
-      debugPrint("Delete For Everyone Error: $e");
-    }
+    await _chatService.deleteMessage(
+      chatId: effectiveChatId,
+      messageId: messageId,
+      targetCollection: isGroupChat ? widget.collectionPath!.split('/')[0] : 'chat',
+      forEveryone: true,
+    );
   }
 
   void _showDeleteOptions(String messageId, bool isMe, bool isAlreadyDeleted) {
@@ -247,6 +203,14 @@ class _ChatScreenState extends State<ChatScreen> {
           widget.clientName,
           style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
         ),
+        actions: [
+          if (!_isCaseClosed)
+            IconButton(
+              icon: const Icon(Icons.close_fullscreen, color: Colors.white70),
+              tooltip: "Close Consultation",
+              onPressed: _closeChat,
+            ),
+        ],
       ),
       body: Column(
         children: [
@@ -263,7 +227,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 }).toList();
 
                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _markMessagesAsRead(docs);
+                  _chatService.markAsRead(effectiveChatId, isGroupChat ? widget.collectionPath!.split('/')[0] : 'chat');
                 });
 
                 return ListView.builder(

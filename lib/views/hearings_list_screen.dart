@@ -94,7 +94,7 @@ class _HearingsListScreenState extends State<HearingsListScreen> {
                         String historyDesc = (hData['hearingDescription'] ?? hData['description'] ?? '').toString();
 
                         return Card(
-                          color: Colors.white.withOpacity(0.1),
+                          color: Colors.white.withValues(alpha: 0.1),
                           margin: const EdgeInsets.only(bottom: 10),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           child: ListTile(
@@ -200,7 +200,7 @@ class _HearingsListScreenState extends State<HearingsListScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.event_note, size: 80, color: navyBlue.withOpacity(0.3)),
+                        Icon(Icons.event_note, size: 80, color: navyBlue.withValues(alpha: 0.3)),
                         const SizedBox(height: 15),
                         const Text("No hearings found.", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
                       ],
@@ -240,7 +240,7 @@ class _HearingsListScreenState extends State<HearingsListScreen> {
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                     decoration: BoxDecoration(
-                                      color: goldColor.withOpacity(0.2),
+                                      color: goldColor.withValues(alpha: 0.2),
                                       borderRadius: BorderRadius.circular(10),
                                       border: Border.all(color: goldColor),
                                     ),

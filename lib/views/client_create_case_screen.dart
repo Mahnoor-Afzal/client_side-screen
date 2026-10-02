@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'client_lawyer_list_screen.dart';
 import 'client_dashboard.dart';
-import 'client_notification_helper.dart';
+import '../utils/client_notification_helper.dart';
 
 class CreateCaseScreen extends StatefulWidget {
   final String? lawyerId;

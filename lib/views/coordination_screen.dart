@@ -1,17 +1,17 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:file_picker/file_picker.dart';
-import 'client_notification_helper.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../services/chat_service.dart';
+import '../services/coordination_service.dart';
+import '../models/coordination_request.dart';
+import '../models/lawyer_profile.dart';
+import '../models/case_model.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
 import 'dart:io';
-import 'package:http/http.dart' as http;
 
 const Color kNavyBlue = Color(0xFF101D3D);
 const Color kGoldColor = Color(0xFFC5A358);
@@ -24,54 +24,6 @@ String safeFormatDate(dynamic dateVal) {
     return "${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}";
   }
   return dateVal.toString();
-}
-
-// ==========================================
-// CLOUDINARY UPLOAD HELPER FUNCTION
-// ==========================================
-Future<String?> uploadToCloudinary(PlatformFile file) async {
-  const String cloudName = "gasafl8q";
-  const String uploadPreset = "ml_default";
-
-  try {
-    final uri = Uri.parse("https://api.cloudinary.com/v1_1/$cloudName/auto/upload");
-
-    var request = http.MultipartRequest("POST", uri);
-    request.fields['upload_preset'] = uploadPreset;
-
-    if (kIsWeb) {
-      if (file.bytes == null) return null;
-      request.files.add(
-        http.MultipartFile.fromBytes(
-          'file',
-          file.bytes!,
-          filename: file.name,
-        ),
-      );
-    } else {
-      if (file.path == null) return null;
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'file',
-          file.path!,
-        ),
-      );
-    }
-    var response = await request.send();
-    if (response.statusCode == 200) {
-      var responseData = await response.stream.toBytes();
-      var responseString = String.fromCharCodes(responseData);
-      var jsonMap = jsonDecode(responseString);
-      return jsonMap['secure_url'];
-    } else {
-      var responseData = await response.stream.toBytes();
-      debugPrint("Cloudinary Upload Failed: ${String.fromCharCodes(responseData)}");
-      return null;
-    }
-  } catch (e) {
-    debugPrint("Cloudinary Upload Error: $e");
-    return null;
-  }
 }
 
 // CROSS-PLATFORM DOWNLOAD & VIEW HELPER
@@ -146,6 +98,7 @@ class CoordinationScreen extends StatefulWidget {
 }
 
 class _CoordinationScreenState extends State<CoordinationScreen> {
+  final CoordinationService _coordinationService = CoordinationService();
   String searchQuery = "";
   final TextEditingController _searchController = TextEditingController();
 
@@ -184,41 +137,41 @@ class _CoordinationScreenState extends State<CoordinationScreen> {
         body: uid == null
             ? const Center(child: Text("Please login to see coordination data"))
             : Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: TextField(
+                controller: _searchController,
+                onChanged: (value) {
+                  setState(() {
+                    searchQuery = value.toLowerCase();
+                  });
+                },
+                decoration: InputDecoration(
+                  hintText: "Search by name",
+                  prefixIcon: const Icon(Icons.search),
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                ),
+              ),
+            ),
+            Expanded(
+              child: TabBarView(
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.all(12.0),
-                    child: TextField(
-                      controller: _searchController,
-                      onChanged: (value) {
-                        setState(() {
-                          searchQuery = value.toLowerCase();
-                        });
-                      },
-                      decoration: InputDecoration(
-                        hintText: "Search by name",
-                        prefixIcon: const Icon(Icons.search),
-                        filled: true,
-                        fillColor: Colors.white,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide.none,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        _MyTeamsTab(uid: uid, searchQuery: searchQuery),
-                        _CoordinatedCasesTab(uid: uid, searchQuery: searchQuery),
-                        _RequestsTab(currentUid: uid, searchQuery: searchQuery),
-                        _VerifiedLawyersTab(currentUid: uid, searchQuery: searchQuery),
-                      ],
-                    ),
-                  ),
+                  _MyTeamsTab(uid: uid, searchQuery: searchQuery, service: _coordinationService),
+                  _CoordinatedCasesTab(uid: uid, searchQuery: searchQuery),
+                  _RequestsTab(currentUid: uid, searchQuery: searchQuery, service: _coordinationService),
+                  _VerifiedLawyersTab(currentUid: uid, searchQuery: searchQuery, service: _coordinationService),
                 ],
               ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -230,39 +183,30 @@ class _CoordinationScreenState extends State<CoordinationScreen> {
 class _MyTeamsTab extends StatelessWidget {
   final String uid;
   final String searchQuery;
-  const _MyTeamsTab({required this.uid, required this.searchQuery});
+  final CoordinationService service;
+  const _MyTeamsTab({required this.uid, required this.searchQuery, required this.service});
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('coordination_requests')
-          .where('status', isEqualTo: 'Accepted')
-          .snapshots(),
+    return StreamBuilder<List<CoordinationRequest>>(
+      stream: service.getAcceptedRequests(uid),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return _buildEmptyState();
         }
 
-        var myCoordinationDocs = snapshot.data!.docs.where((doc) {
-          var data = doc.data() as Map<String, dynamic>;
-          String senderId = (data['senderId'] ?? '').toString().trim();
-          String receiverId = (data['receiverId'] ?? '').toString().trim();
-          String clientName = (data['clientName'] ?? '').toString().toLowerCase();
-          String caseId = (data['caseId'] ?? '').toString().toLowerCase();
+        var myCoordinationDocs = snapshot.data!.where((req) {
+          String senderId = (req.senderId ?? '').trim();
+          String receiverId = (req.receiverId ?? '').trim();
+          String clientName = (req.clientName ?? '').toLowerCase();
+          String caseId = (req.caseId ?? '').toLowerCase();
 
           // Show for Main Lawyer (Sender) OR Supporting Lawyer (Receiver/Team)
-          bool isIncluded = senderId == uid || receiverId == uid;
-
-          data.forEach((key, value) {
-            if (value is List) {
-              if (value.contains(uid)) isIncluded = true;
-            }
-          });
+          bool isIncluded = senderId == uid || receiverId == uid || (req.users?.contains(uid) ?? false);
 
           if (!isIncluded) return false;
 
@@ -275,9 +219,8 @@ class _MyTeamsTab extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           itemCount: myCoordinationDocs.length,
           itemBuilder: (context, index) {
-            var doc = myCoordinationDocs[index];
-            var data = doc.data() as Map<String, dynamic>;
-            String caseId = data['caseId'] ?? '';
+            var req = myCoordinationDocs[index];
+            String caseId = req.caseId ?? '';
 
             return FutureBuilder<DocumentSnapshot>(
               future: FirebaseFirestore.instance.collection('suit_a_file_request').doc(caseId).get(),
@@ -294,22 +237,24 @@ class _MyTeamsTab extends StatelessWidget {
                       if (fallbackSnap.hasData && fallbackSnap.data!.exists) {
                         fallbackData = fallbackSnap.data!.data() as Map<String, dynamic>;
                       }
-                      fallbackData['clientName'] = fallbackData['clientName'] ?? data['clientName'];
+                      fallbackData['clientName'] = fallbackData['clientName'] ?? req.clientName;
 
                       return CoordinationCard(
                         caseId: caseId,
                         data: fallbackData,
                         currentUid: uid,
+                        service: service,
                       );
                     },
                   );
                 }
-                caseData['clientName'] = caseData['clientName'] ?? data['clientName'];
+                caseData['clientName'] = caseData['clientName'] ?? req.clientName;
 
                 return CoordinationCard(
                   caseId: caseId,
                   data: caseData,
                   currentUid: uid,
+                  service: service,
                 );
               },
             );
@@ -357,39 +302,41 @@ class TeamChatScreen extends StatefulWidget {
 
 class _TeamChatScreenState extends State<TeamChatScreen> {
   final TextEditingController _msgController = TextEditingController();
+  final ChatService _chatService = ChatService();
   String _currentUserName = "User";
   String _currentUserRole = "Client";
   Map<String, dynamic>? _replyingToMessage;
+  String? _groupChatDocId;
 
   @override
   void initState() {
     super.initState();
     _fetchCurrentUserName();
+    _initializeChat();
+  }
+
+  Future<void> _initializeChat() async {
+    final id = await _chatService.getOrCreateGroupChatId(widget.caseId, widget.clientName);
+    if (mounted) {
+      setState(() {
+        _groupChatDocId = id;
+      });
+    }
   }
 
   Future<void> _fetchCurrentUserName() async {
-    try {
-      var doc = await FirebaseFirestore.instance.collection('verified_lawyers').doc(widget.currentUid).get();
-      if (doc.exists) {
-        setState(() {
-          _currentUserName = doc.data()?['fullName'] ?? doc.data()?['name'] ?? "Lawyer";
-          _currentUserRole = "Lawyer";
-        });
-      } else {
-        var userDoc = await FirebaseFirestore.instance.collection('users').doc(widget.currentUid).get();
-        if (userDoc.exists) {
-          setState(() {
-            _currentUserName = userDoc.data()?['fullName'] ?? userDoc.data()?['name'] ?? "Client";
-            _currentUserRole = "Client";
-          });
-        }
-      }
-    } catch (_) {}
+    final profile = await _chatService.getUserProfile(widget.currentUid);
+    if (profile != null && mounted) {
+      setState(() {
+        _currentUserName = profile['fullName'] ?? profile['name'] ?? "User";
+        _currentUserRole = profile['role'] ?? (profile['isLawyer'] == true ? "Lawyer" : "Client");
+      });
+    }
   }
 
   void _sendMessage() async {
     String text = _msgController.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _groupChatDocId == null) return;
 
     _msgController.clear();
     var replyData = _replyingToMessage;
@@ -397,82 +344,32 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
       _replyingToMessage = null;
     });
 
-    Map<String, dynamic> messageData = {
-      'senderId': widget.currentUid,
-      'senderName': _currentUserName,
-      'senderRole': _currentUserRole,
-      'message': text,
-      'timestamp': FieldValue.serverTimestamp(),
-      'deletedFor': [],
-    };
-
+    Map<String, dynamic>? replyTo;
     if (replyData != null) {
-      messageData['replyToMessage'] = replyData['message'];
-      messageData['replyToSender'] = replyData['senderName'];
+      replyTo = {
+        'replyToMessage': replyData['message'],
+        'replyToSender': replyData['senderName'],
+      };
     }
 
-    var groupChatQuery = await FirebaseFirestore.instance
-        .collection('group_chats')
-        .where('caseId', isEqualTo: widget.caseId)
-        .limit(1)
-        .get();
-
-    String groupChatDocId = "";
-    if (groupChatQuery.docs.isNotEmpty) {
-      groupChatDocId = groupChatQuery.docs.first.id;
-    } else {
-      var newDocRef = await FirebaseFirestore.instance.collection('group_chats').add({
-        'caseId': widget.caseId,
-        'clientName': widget.clientName,
-        'isGroup': true,
-        'lastMessage': text,
-        'lastMessageTime': FieldValue.serverTimestamp(),
-      });
-      groupChatDocId = newDocRef.id;
-    }
-
-    await FirebaseFirestore.instance.collection('group_chats').doc(groupChatDocId).update({
-      'lastMessage': text,
-      'lastMessageTime': FieldValue.serverTimestamp(),
-    });
-
-    await FirebaseFirestore.instance
-        .collection('group_chats')
-        .doc(groupChatDocId)
-        .collection('messages')
-        .add(messageData);
+    await _chatService.sendMessage(
+      chatId: _groupChatDocId!,
+      text: text,
+      senderName: _currentUserName,
+      senderRole: _currentUserRole,
+      targetCollection: 'group_chats',
+      replyTo: replyTo,
+    );
   }
 
   void _deleteMessage(String docId, String senderId, bool deleteForEveryone) async {
-    var groupChatQuery = await FirebaseFirestore.instance
-        .collection('group_chats')
-        .where('caseId', isEqualTo: widget.caseId)
-        .limit(1)
-        .get();
-
-    if (groupChatQuery.docs.isNotEmpty) {
-      String groupChatDocId = groupChatQuery.docs.first.id;
-      if (deleteForEveryone && senderId == widget.currentUid) {
-        await FirebaseFirestore.instance
-            .collection('group_chats')
-            .doc(groupChatDocId)
-            .collection('messages')
-            .doc(docId)
-            .update({
-          'message': 'This message was deleted',
-          'isDeleted': true,
-        });
-      } else {
-        await FirebaseFirestore.instance
-            .collection('group_chats')
-            .doc(groupChatDocId)
-            .collection('messages')
-            .doc(docId)
-            .update({
-          'deletedFor': FieldValue.arrayUnion([widget.currentUid])
-        });
-      }
-    }
+    if (_groupChatDocId == null) return;
+    await _chatService.deleteMessage(
+      chatId: _groupChatDocId!,
+      messageId: docId,
+      targetCollection: 'group_chats',
+      forEveryone: deleteForEveryone,
+    );
   }
 
   void _showDeleteOptions(BuildContext context, String docId, String senderId) {
@@ -529,63 +426,47 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
       body: Column(
         children: [
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('group_chats').where('caseId', isEqualTo: widget.caseId).limit(1).snapshots(),
-              builder: (context, groupSnapshot) {
-                if (groupSnapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+            child: _groupChatDocId == null
+                ? const Center(child: CircularProgressIndicator())
+                : StreamBuilder<QuerySnapshot>(
+                    stream: _chatService.getMessagesStream(_groupChatDocId!, 'group_chats'),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
 
-                if (!groupSnapshot.hasData || groupSnapshot.data!.docs.isEmpty) {
-                  return const Center(
-                    child: Text("No messages yet. Start team discussion!", style: TextStyle(color: Colors.grey)),
-                  );
-                }
+                      if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                        return const Center(
+                          child: Text("No messages yet. Start team discussion!", style: TextStyle(color: Colors.grey)),
+                        );
+                      }
 
-                String groupChatDocId = groupSnapshot.data!.docs.first.id;
+                      var messages = snapshot.data!.docs;
 
-                return StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('group_chats')
-                      .doc(groupChatDocId)
-                      .collection('messages')
-                      .orderBy('timestamp', descending: true)
-                      .snapshots(),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
+                      return ListView.builder(
+                        reverse: true,
+                        padding: const EdgeInsets.all(12),
+                        itemCount: messages.length,
+                        itemBuilder: (context, index) {
+                          var doc = messages[index];
+                          var data = doc.data() as Map<String, dynamic>;
 
-                    if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                      return const Center(
-                        child: Text("No messages yet. Start team discussion!", style: TextStyle(color: Colors.grey)),
-                      );
-                    }
+                          List deletedFor = data['deletedFor'] ?? [];
+                          if (deletedFor.contains(widget.currentUid)) {
+                            return const SizedBox.shrink();
+                          }
 
-                    var messages = snapshot.data!.docs;
+                          bool isMe = data['senderId'] == widget.currentUid;
+                          String senderName = data['senderName'] ?? 'User';
+                          String senderRole = (data['senderRole'] ?? 'Client').toString().toUpperCase();
+                          bool isLawyer = senderRole == 'LAWYER';
 
-                    return ListView.builder(
-                      reverse: true,
-                      padding: const EdgeInsets.all(12),
-                      itemCount: messages.length,
-                      itemBuilder: (context, index) {
-                        var doc = messages[index];
-                        var data = doc.data() as Map<String, dynamic>;
-
-                        List deletedFor = data['deletedFor'] ?? [];
-                        if (deletedFor.contains(widget.currentUid)) {
-                          return const SizedBox.shrink();
-                        }
-
-                        bool isMe = data['senderId'] == widget.currentUid;
-                        String senderName = data['senderName'] ?? 'User';
-                        String senderRole = (data['senderRole'] ?? 'Client').toString().toUpperCase();
-                        bool isLawyer = senderRole == 'LAWYER';
-                        
-                        bool isDeleted = data['isDeleted'] == true;
-                        String messageText = data['message'] ?? data['text'] ?? '';
-                        String? replyText = data['replyToMessage'];
-                        String? replySender = data['replyToSender'];
+                          bool isDeleted = data['isDeleted'] == true || data['isDeletedForEveryone'] == true;
+                          String messageText = data['message'] ?? data['text'] ?? '';
+                          
+                          Map<String, dynamic>? replyTo = data['replyTo'];
+                          String? replyText = replyTo?['replyToMessage'] ?? data['replyToMessage'];
+                          String? replySender = replyTo?['replyToSender'] ?? data['replyToSender'];
 
                         Widget messageWidget = Align(
                           alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -692,9 +573,7 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
                       },
                     );
                   },
-                );
-              },
-            ),
+                ),
           ),
           if (_replyingToMessage != null)
             Container(
@@ -720,13 +599,10 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
                 ],
               ),
             ),
-          StreamBuilder<DocumentSnapshot>(
-            stream: FirebaseFirestore.instance.collection('suit_a_file_request').doc(widget.caseId).snapshots(),
+          StreamBuilder<bool>(
+            stream: _chatService.getCaseStatusStream(widget.caseId, 'suit_a_file_request'),
             builder: (context, statusSnap) {
-              bool isClosed = false;
-              if (statusSnap.hasData && statusSnap.data!.exists) {
-                isClosed = (statusSnap.data!.get('status') ?? '').toString().toLowerCase() == 'closed';
-              }
+              bool isClosed = statusSnap.data ?? false;
 
               if (isClosed) {
                 return Container(
@@ -1290,7 +1166,7 @@ class _CoordinatedCasesTab extends StatelessWidget {
 
             var coordinatedCases = caseDocs.where((doc) {
               if (!acceptedCaseIds.contains(doc.id)) return false;
-              
+
               var data = doc.data() as Map<String, dynamic>;
               String clientName = (data['clientName'] ?? data['client_name'] ?? data['userName'] ?? "Client").toString().toLowerCase();
               String caseType = (data['caseType'] ?? data['category'] ?? "Assigned Case").toString().toLowerCase();
@@ -1305,7 +1181,7 @@ class _CoordinatedCasesTab extends StatelessWidget {
                 stream: FirebaseFirestore.instance.collection('cases').snapshots(),
                 builder: (context, fallbackSnapshot) {
                   if (fallbackSnapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-                  
+
                   var fallbackDocs = fallbackSnapshot.data?.docs ?? [];
                   var fallbackCoordinated = fallbackDocs.where((doc) {
                     if (!acceptedCaseIds.contains(doc.id)) return false;
@@ -1486,85 +1362,18 @@ class _SupportingLawyerUploadDialogState extends State<SupportingLawyerUploadDia
             });
 
             try {
-              String? fileUrl = await uploadToCloudinary(selectedFile!);
+              final CoordinationService coordinationService = CoordinationService();
+              await coordinationService.uploadCaseDocument(
+                caseId: widget.caseId,
+                title: titleController.text.trim(),
+                file: selectedFile!,
+              );
 
-              if (fileUrl != null && fileUrl.isNotEmpty) {
-                var lawyerDoc = await FirebaseFirestore.instance.collection('verified_lawyers').doc(widget.uid).get();
-                String lawyerName = lawyerDoc.data()?['fullName'] ?? lawyerDoc.data()?['name'] ?? "Supporting Lawyer";
-
-                // 1. Save inside cases/{caseId}/documents so Supporting Lawyer & Lead Lawyer see it in Coordinated Docs
-                await FirebaseFirestore.instance
-                    .collection('cases')
-                    .doc(widget.caseId)
-                    .collection('documents')
-                    .add({
-                  'title': titleController.text.trim(),
-                  'fileName': selectedFile!.name,
-                  'fileUrl': fileUrl,
-                  'uploadedBy': lawyerName,
-                  'uploadedById': widget.uid,
-                  'uploadedByRole': 'Supporting Lawyer',
-                  'createdAt': FieldValue.serverTimestamp(),
-                });
-
-                // 2. Also save inside global root 'documents' collection so it automatically shows in Client's & Lead Lawyer's Documents Vault
-                var caseDocFetch = await FirebaseFirestore.instance.collection('cases').doc(widget.caseId).get();
-                if (caseDocFetch.exists && caseDocFetch.data() != null) {
-                  var cData = caseDocFetch.data()!;
-                  String clientId = (cData['clientId'] ?? cData['clientid'] ?? cData['userId'] ?? '').toString();
-                  String leadLawyerId = (cData['lawyerid'] ?? cData['lawyerId'] ?? cData['leadLawyerId'] ?? '').toString();
-
-                  await FirebaseFirestore.instance.collection('documents').add({
-                    'caseId': widget.caseId,
-                    'clientId': clientId,
-                    'lawyerId': leadLawyerId,
-                    'title': titleController.text.trim(),
-                    'fileName': selectedFile!.name,
-                    'fileUrl': fileUrl,
-                    'uploadedBy': lawyerName,
-                    'uploadedById': widget.uid,
-                    'uploadedByRole': 'Supporting Lawyer',
-                    'senderId': clientId,
-                    'receiverId': leadLawyerId,
-                    'createdAt': FieldValue.serverTimestamp(),
-                  });
-
-                  // 3. Send Notification to Client
-                  String title = 'New Case Document';
-                  String body = '$lawyerName has uploaded a new document: ${titleController.text.trim()}';
-
-                  await FirebaseFirestore.instance.collection('notifications').add({
-                    'receiverId': clientId,
-                    'userId': clientId, // Added so client notifications screen can query it
-                    'senderId': widget.uid,
-                    'title': title,
-                    'body': body,
-                    'type': 'document_upload',
-                    'caseId': widget.caseId,
-                    'isRead': false,
-                    'createdAt': FieldValue.serverTimestamp(),
-                  });
-
-                  // Send Push Notification
-                  await NotificationHelper.sendPushNotification(
-                    clientId,
-                    title,
-                    body,
-                    {
-                      'type': 'document_upload',
-                      'caseId': widget.caseId,
-                    },
-                  );
-                }
-
-                if (context.mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Document uploaded successfully!"), backgroundColor: Colors.green),
-                  );
-                }
-              } else {
-                throw Exception("Failed to upload file to Cloudinary.");
+              if (context.mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Document uploaded successfully!"), backgroundColor: Colors.green),
+                );
               }
             } catch (e) {
               if (context.mounted) {
@@ -1591,132 +1400,19 @@ class _SupportingLawyerUploadDialogState extends State<SupportingLawyerUploadDia
 class _RequestsTab extends StatelessWidget {
   final String currentUid;
   final String searchQuery;
-  const _RequestsTab({required this.currentUid, required this.searchQuery});
+  final CoordinationService service;
+  const _RequestsTab({required this.currentUid, required this.searchQuery, required this.service});
 
-  Future<void> _handleRequest(BuildContext context, String reqId, String caseId, String senderId, String senderName, bool accept) async {
+  Future<void> _handleRequest(BuildContext context, CoordinationRequest request, bool accept) async {
     try {
-      if (accept) {
-        // 1. Fetch Supporting Lawyer Information
-        var lawyerDoc = await FirebaseFirestore.instance.collection('verified_lawyers').doc(currentUid).get();
-        String supportingLawyerName = lawyerDoc.data()?['fullName'] ?? lawyerDoc.data()?['name'] ?? "Supporting Lawyer";
-
-        // 2. Update coordination_requests status to 'Accepted'
-        await FirebaseFirestore.instance.collection('coordination_requests').doc(reqId).update({
-          'status': 'Accepted',
-          'assignedLawyers': FieldValue.arrayUnion([currentUid, senderId]),
-          'supportingLawyerName': supportingLawyerName,
-        });
-
-        // 3. Sync Lawyer Information to 'suit_a_file_request' and 'cases'
-        // This ensures both the Lead Lawyer and Client can see who is supporting the case.
-        var suitRef = FirebaseFirestore.instance.collection('suit_a_file_request').doc(caseId);
-        var suitSnap = await suitRef.get();
-        if (suitSnap.exists) {
-          await suitRef.update({
-            'assignedLawyers': FieldValue.arrayUnion([currentUid]),
-            'supportingLawyerId': currentUid,
-            'supportingLawyerName': supportingLawyerName,
-            'teamNames': FieldValue.arrayUnion([supportingLawyerName]),
-          });
-        }
-
-        var caseRef = FirebaseFirestore.instance.collection('cases').doc(caseId);
-        var caseSnap = await caseRef.get();
-        if (caseSnap.exists) {
-          await caseRef.update({
-            'assignedLawyers': FieldValue.arrayUnion([currentUid]),
-            'supportingLawyerId': currentUid,
-            'supportingLawyerName': supportingLawyerName,
-            'teamNames': FieldValue.arrayUnion([supportingLawyerName]),
-          });
-        }
-
-        // 4. Fetch Client ID from 'suit_a_file_request' or 'cases' to add to team chat
-        String? clientId;
-        if (suitSnap.exists) {
-          clientId = suitSnap.data()?['clientId'] ?? suitSnap.data()?['userId'] ?? suitSnap.data()?['created_by'];
-        } else if (caseSnap.exists) {
-          clientId = caseSnap.data()?['created_by'] ?? caseSnap.data()?['clientId'];
-        }
-
-        // 5. Add Client to the 'users' array so they can see the Team Chat now
-        if (clientId != null && clientId.isNotEmpty) {
-          await FirebaseFirestore.instance.collection('coordination_requests').doc(reqId).update({
-            'users': FieldValue.arrayUnion([clientId])
-          });
-
-          // Sync with any existing group_chat document
-          var groupChatQuery = await FirebaseFirestore.instance
-              .collection('group_chats')
-              .where('caseId', isEqualTo: caseId)
-              .get();
-
-          for (var doc in groupChatQuery.docs) {
-            await doc.reference.update({
-              'users': FieldValue.arrayUnion([clientId, currentUid, senderId])
-            });
-          }
-
-          // 4. Send Notification to Client about Team Chat / Coordination
-          String clientTitle = 'Case Team Formed';
-          String clientBody = '$senderName has added a supporting lawyer to your case. Communication is now active in Team Chat.';
-
-          await FirebaseFirestore.instance.collection('notifications').add({
-            'receiverId': clientId,
-            'senderId': currentUid,
-            'title': clientTitle,
-            'body': clientBody,
-            'type': 'team_chat_active',
-            'caseId': caseId,
-            'isRead': false,
-            'createdAt': FieldValue.serverTimestamp(),
-          });
-
-          await NotificationHelper.sendPushNotification(
-            clientId,
-            clientTitle,
-            clientBody,
-            {'type': 'team_chat_active', 'caseId': caseId},
-          );
-        }
-
-        // 5. Also notify the Main Lawyer (Sender) that the Supporting Lawyer accepted
-        String mainLawyerTitle = 'Coordination Request Accepted';
-        String mainLawyerBody = 'A lawyer has accepted your coordination request for case: $caseId';
-
-        await FirebaseFirestore.instance.collection('notifications').add({
-          'receiverId': senderId,
-          'senderId': currentUid,
-          'title': mainLawyerTitle,
-          'body': mainLawyerBody,
-          'type': 'coordination_accepted',
-          'caseId': caseId,
-          'isRead': false,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-
-        await NotificationHelper.sendPushNotification(
-          senderId,
-          mainLawyerTitle,
-          mainLawyerBody,
-          {'type': 'coordination_accepted', 'caseId': caseId},
+      await service.handleRequest(request, accept);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(accept ? "Coordination Request Accepted! Team Chat is now active." : "Request Declined"),
+            backgroundColor: accept ? Colors.green : Colors.orange,
+          ),
         );
-
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Coordination Request Accepted! Team Chat is now active."), backgroundColor: Colors.green),
-          );
-        }
-      } else {
-        await FirebaseFirestore.instance.collection('coordination_requests').doc(reqId).update({
-          'status': 'Rejected'
-        });
-
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Request Declined"), backgroundColor: Colors.orange),
-          );
-        }
       }
     } catch (e) {
       if (context.mounted) {
@@ -1729,27 +1425,23 @@ class _RequestsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('coordination_requests')
-          .where('receiverId', isEqualTo: currentUid)
-          .snapshots(),
+    return StreamBuilder<List<CoordinationRequest>>(
+      stream: service.getIncomingRequests(currentUid),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return const Center(
             child: Text("No incoming coordination requests.", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
           );
         }
 
-        var requests = snapshot.data!.docs.where((doc) {
-           var data = doc.data() as Map<String, dynamic>;
-           String senderName = (data['senderName'] ?? "Lawyer").toString().toLowerCase();
-           String clientName = (data['clientName'] ?? "Client").toString().toLowerCase();
-           return senderName.contains(searchQuery) || clientName.contains(searchQuery);
+        var requests = snapshot.data!.where((req) {
+          String senderName = (req.senderName).toLowerCase();
+          String clientName = (req.clientName).toLowerCase();
+          return senderName.contains(searchQuery) || clientName.contains(searchQuery);
         }).toList();
 
         if (requests.isEmpty) {
@@ -1760,15 +1452,8 @@ class _RequestsTab extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           itemCount: requests.length,
           itemBuilder: (context, index) {
-            var doc = requests[index];
-            var data = doc.data() as Map<String, dynamic>;
+            var req = requests[index];
 
-            String reqId = doc.id;
-            String senderName = data['senderName'] ?? "Lawyer";
-            String clientName = data['clientName'] ?? "Client";
-            String status = data['status'] ?? "Pending";
-            String caseId = data['caseId'] ?? "";
-            String senderId = data['senderId'] ?? "";
             return Card(
               elevation: 3,
               margin: const EdgeInsets.only(bottom: 12),
@@ -1783,20 +1468,20 @@ class _RequestsTab extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            "Request from $senderName",
+                            "Request from ${req.senderName}",
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: kNavyBlue),
                           ),
                         ),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
-                            color: status == 'Pending' ? Colors.amber.shade100 : (status == 'Accepted' ? Colors.green.shade100 : Colors.red.shade100),
+                            color: req.status == 'Pending' ? Colors.amber.shade100 : (req.status == 'Accepted' ? Colors.green.shade100 : Colors.red.shade100),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            status,
+                            req.status,
                             style: TextStyle(
-                              color: status == 'Pending' ? Colors.amber.shade900 : (status == 'Accepted' ? Colors.green.shade900 : Colors.red.shade900),
+                              color: req.status == 'Pending' ? Colors.amber.shade900 : (req.status == 'Accepted' ? Colors.green.shade900 : Colors.red.shade900),
                               fontWeight: FontWeight.bold,
                               fontSize: 11,
                             ),
@@ -1805,17 +1490,17 @@ class _RequestsTab extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    Text("Client Name: $clientName", style: const TextStyle(fontSize: 13, color: Colors.black87)),
-                    Text("Case Reference ID: $caseId", style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                    Text("Client Name: ${req.clientName}", style: const TextStyle(fontSize: 13, color: Colors.black87)),
+                    Text("Case Reference ID: ${req.caseId}", style: const TextStyle(fontSize: 11, color: Colors.grey)),
                     const SizedBox(height: 12),
 
-                    if (status == 'Pending')
+                    if (req.status == 'Pending')
                       Row(
                         children: [
                           Expanded(
                             child: ElevatedButton.icon(
                               style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-                              onPressed: () => _handleRequest(context, reqId, caseId, senderId, senderName, true),
+                              onPressed: () => _handleRequest(context, req, true),
                               icon: const Icon(Icons.check, size: 18),
                               label: const Text("Accept"),
                             ),
@@ -1824,7 +1509,7 @@ class _RequestsTab extends StatelessWidget {
                           Expanded(
                             child: OutlinedButton.icon(
                               style: OutlinedButton.styleFrom(foregroundColor: Colors.red, side: const BorderSide(color: Colors.red)),
-                              onPressed: () => _handleRequest(context, reqId, caseId, senderId, senderName, false),
+                              onPressed: () => _handleRequest(context, req, false),
                               icon: const Icon(Icons.close, size: 18),
                               label: const Text("Decline"),
                             ),
@@ -1847,25 +1532,12 @@ class _RequestsTab extends StatelessWidget {
 class _VerifiedLawyersTab extends StatelessWidget {
   final String currentUid;
   final String searchQuery;
-  const _VerifiedLawyersTab({required this.currentUid, required this.searchQuery});
+  final CoordinationService service;
+  const _VerifiedLawyersTab({required this.currentUid, required this.searchQuery, required this.service});
 
   void _showCaseSelectionDialog(BuildContext context, String targetLawyerId, String targetLawyerName) async {
     try {
-      var casesSnapshot = await FirebaseFirestore.instance.collection('suit_a_file_request').get();
-
-      List<QueryDocumentSnapshot> activeCases = casesSnapshot.docs.where((doc) {
-        var data = doc.data() as Map<String, dynamic>;
-
-        String lawyerId = (data['lawyerid'] ?? data['lawyerId'] ?? data['leadLawyerId'] ?? '').toString().trim();
-        List assigned = data['assignedLawyers'] ?? [];
-        String status = (data['status'] ?? 'active').toString().toLowerCase().trim();
-
-        bool isMyCase = (lawyerId == currentUid) || assigned.contains(currentUid);
-        bool isActive = status == 'active' || status == 'accepted';
-
-        return isMyCase && isActive;
-      }).toList();
-
+      var activeCases = await service.getActiveCasesForCurrentLawyer();
       if (!context.mounted) return;
 
       if (activeCases.isEmpty) {
@@ -1882,6 +1554,7 @@ class _VerifiedLawyersTab extends StatelessWidget {
           targetLawyerId: targetLawyerId,
           targetLawyerName: targetLawyerName,
           currentUid: currentUid,
+          service: service,
         ),
       );
     } catch (e) {
@@ -1895,31 +1568,21 @@ class _VerifiedLawyersTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('verified_lawyers').snapshots(),
+    return StreamBuilder<List<LawyerProfile>>(
+      stream: service.getVerifiedLawyers(currentUid),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return const Center(child: Text("No verified lawyers found", style: TextStyle(color: Colors.grey)));
         }
 
-        var lawyers = snapshot.data!.docs.where((doc) {
-          if (doc.id == currentUid) return false;
-
-          var data = doc.data() as Map<String, dynamic>;
-          bool isApproved = (data['isApproved'] == true) ||
-              (data['isVerified'] == true) ||
-              (data['verified'] == true) ||
-              (!data.containsKey('isApproved') && !data.containsKey('isVerified'));
-
-          if (!isApproved) return false;
-
-          String name = (data['fullName'] ?? data['name'] ?? "").toString().toLowerCase();
-          String category = (data['category'] ?? data['specialization'] ?? "").toString().toLowerCase();
-          String location = (data['location'] ?? data['city'] ?? "").toString().toLowerCase();
+        var lawyers = snapshot.data!.where((profile) {
+          String name = profile.fullName.toLowerCase();
+          String category = profile.category.toLowerCase();
+          String location = profile.location.toLowerCase();
 
           return name.contains(searchQuery) || category.contains(searchQuery) || location.contains(searchQuery);
         }).toList();
@@ -1932,19 +1595,7 @@ class _VerifiedLawyersTab extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           itemCount: lawyers.length,
           itemBuilder: (context, index) {
-            var doc = lawyers[index];
-            var data = doc.data() as Map<String, dynamic>;
-
-            String val(dynamic v, String def) => (v == null) ? def : (v is List ? v.join(", ") : v.toString());
-
-            String name = val(data['fullName'] ?? data['name'], "Lawyer");
-            String? profileImg = data['profileImageUrl'] ?? data['profilePic'] ?? data['cnicFrontUrl'];
-            String category = val(data['category'] ?? data['specialization'] ?? data['area'], "Legal Expert");
-            String barCouncil = val(data['barCouncil'], "Bar Council Name");
-            String location = val(data['location'] ?? data['city'] ?? data['area'], "Location");
-            String court = val(data['court'], "Supreme Court");
-            String experience = val(data['experience'], "N/A");
-            String bio = val(data['description'] ?? data['bio'] ?? data['about'], "I am a professional lawyer.");
+            var profile = lawyers[index];
 
             return Card(
               elevation: 3,
@@ -1961,8 +1612,8 @@ class _VerifiedLawyersTab extends StatelessWidget {
                         CircleAvatar(
                           radius: 35,
                           backgroundColor: Colors.grey[200],
-                          backgroundImage: (profileImg != null && profileImg.isNotEmpty) ? NetworkImage(profileImg) : null,
-                          child: (profileImg == null || profileImg.isEmpty) ? const Icon(Icons.person, size: 40, color: kNavyBlue) : null,
+                          backgroundImage: (profile.profileImageUrl != null && profile.profileImageUrl!.isNotEmpty) ? NetworkImage(profile.profileImageUrl!) : null,
+                          child: (profile.profileImageUrl == null || profile.profileImageUrl!.isEmpty) ? const Icon(Icons.person, size: 40, color: kNavyBlue) : null,
                         ),
                         const SizedBox(width: 15),
                         Expanded(
@@ -1971,30 +1622,30 @@ class _VerifiedLawyersTab extends StatelessWidget {
                             children: [
                               Row(
                                 children: [
-                                  Flexible(child: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: kNavyBlue), overflow: TextOverflow.ellipsis)),
+                                  Flexible(child: Text(profile.fullName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: kNavyBlue), overflow: TextOverflow.ellipsis)),
                                   const SizedBox(width: 5),
                                   const Icon(Icons.verified, color: Colors.blue, size: 18),
                                 ],
                               ),
-                              Text(category, style: const TextStyle(color: kGoldColor, fontWeight: FontWeight.w600, fontSize: 14)),
-                              Text(barCouncil, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                              Text(profile.category, style: const TextStyle(color: kGoldColor, fontWeight: FontWeight.w600, fontSize: 14)),
+                              Text(profile.barCouncil, style: const TextStyle(color: Colors.grey, fontSize: 12)),
                               const SizedBox(height: 8),
                               Row(
                                 children: [
                                   Icon(Icons.gavel_rounded, size: 14, color: Colors.grey[600]),
                                   const SizedBox(width: 4),
-                                  Expanded(child: Text(court, style: TextStyle(color: Colors.grey[600], fontSize: 11), overflow: TextOverflow.ellipsis)),
+                                  Expanded(child: Text(profile.court, style: TextStyle(color: Colors.grey[600], fontSize: 11), overflow: TextOverflow.ellipsis)),
                                 ],
                               ),
                               Row(
                                 children: [
                                   Icon(Icons.location_on, size: 14, color: Colors.grey[600]),
                                   const SizedBox(width: 4),
-                                  Text(location, style: TextStyle(color: Colors.grey[600], fontSize: 11)),
+                                  Text(profile.location, style: TextStyle(color: Colors.grey[600], fontSize: 11)),
                                   const SizedBox(width: 10),
                                   Icon(Icons.access_time, size: 14, color: Colors.grey[600]),
                                   const SizedBox(width: 4),
-                                  Text("$experience Exp", style: TextStyle(color: Colors.grey[600], fontSize: 11)),
+                                  Text("${profile.experience} Exp", style: TextStyle(color: Colors.grey[600], fontSize: 11)),
                                 ],
                               ),
                             ],
@@ -2003,7 +1654,7 @@ class _VerifiedLawyersTab extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    Text(bio, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: Colors.black87)),
+                    Text(profile.bio, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: Colors.black87)),
                     const SizedBox(height: 15),
                     StreamBuilder<QuerySnapshot>(
                       stream: FirebaseFirestore.instance.collection('coordination_requests').snapshots(),
@@ -2012,7 +1663,7 @@ class _VerifiedLawyersTab extends StatelessWidget {
                         if (reqSnapshot.hasData) {
                           isPending = reqSnapshot.data!.docs.any((rDoc) {
                             var rData = rDoc.data() as Map<String, dynamic>;
-                            return rData['senderId'] == currentUid && rData['receiverId'] == doc.id && rData['status'] == 'Pending';
+                            return rData['senderId'] == currentUid && rData['receiverId'] == profile.id && rData['status'] == 'Pending';
                           });
                         }
 
@@ -2026,7 +1677,7 @@ class _VerifiedLawyersTab extends StatelessWidget {
                               elevation: 0,
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                             ),
-                            onPressed: isPending ? null : () => _showCaseSelectionDialog(context, doc.id, name),
+                            onPressed: isPending ? null : () => _showCaseSelectionDialog(context, profile.id, profile.fullName),
                             icon: Icon(isPending ? Icons.hourglass_top : Icons.handshake_outlined, size: 18),
                             label: Text(
                               isPending ? "Request Pending" : "Request Coordination",
@@ -2054,12 +1705,14 @@ class CoordinationCard extends StatelessWidget {
   final String caseId;
   final Map<String, dynamic> data;
   final String currentUid;
+  final CoordinationService service;
 
   const CoordinationCard({
     super.key,
     required this.caseId,
     required this.data,
     required this.currentUid,
+    required this.service,
   });
 
   void _showSharedFilesBottomSheet(BuildContext context) {
@@ -2091,12 +1744,7 @@ class CoordinationCard extends StatelessWidget {
                   const SizedBox(height: 15),
                   Expanded(
                     child: StreamBuilder<QuerySnapshot>(
-                      stream: FirebaseFirestore.instance
-                          .collection('cases')
-                          .doc(caseId)
-                          .collection('lawyer_private_documents')
-                          .orderBy('createdAt', descending: true)
-                          .snapshots(),
+                      stream: service.getPrivateLawyerDocumentsStream(caseId),
                       builder: (context, snapshot) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
                           return const Center(child: CircularProgressIndicator());
@@ -2181,36 +1829,7 @@ class CoordinationCard extends StatelessWidget {
             onPressed: () async {
               Navigator.pop(ctx);
               try {
-                // 1. Remove lawyer from assignedLawyers list and track removed lawyers
-                await FirebaseFirestore.instance.collection('cases').doc(caseId).update({
-                  'assignedLawyers': FieldValue.arrayRemove([lawyerIdToRemove]),
-                  'removedLawyers': FieldValue.arrayUnion([lawyerIdToRemove])
-                });
-
-                // 2. Update group chats to block access
-                var groupChatQuery = await FirebaseFirestore.instance
-                    .collection('group_chats')
-                    .where('caseId', isEqualTo: caseId)
-                    .get();
-
-                for (var gDoc in groupChatQuery.docs) {
-                  await gDoc.reference.update({
-                    'removedLawyers': FieldValue.arrayUnion([lawyerIdToRemove])
-                  });
-                }
-
-                // 3. Delete coordination requests
-                var reqQuery = await FirebaseFirestore.instance
-                    .collection('coordination_requests')
-                    .where('caseId', isEqualTo: caseId)
-                    .get();
-
-                for (var doc in reqQuery.docs) {
-                  var rData = doc.data() as Map<String, dynamic>;
-                  if (rData['receiverId'] == lawyerIdToRemove || rData['senderId'] == lawyerIdToRemove) {
-                    await doc.reference.delete();
-                  }
-                }
+                await service.removeLawyerFromTeam(caseId, lawyerIdToRemove, lawyerName);
 
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -2342,7 +1961,7 @@ class CoordinationCard extends StatelessWidget {
                     ),
                     onPressed: () => showDialog(
                       context: context,
-                      builder: (_) => ShareDocDialog(caseId: caseId),
+                      builder: (_) => ShareDocDialog(caseId: caseId, service: service),
                     ),
                     icon: Icon(Icons.security, size: 18, color: Colors.deepPurple.shade700),
                     label: Text("Confidential Doc", style: TextStyle(color: Colors.deepPurple.shade700, fontWeight: FontWeight.w600)),
@@ -2369,10 +1988,11 @@ class CoordinationCard extends StatelessWidget {
 // 6. CASE SELECTION DIALOG
 // ==========================================
 class CaseSelectionDialog extends StatelessWidget {
-  final List<QueryDocumentSnapshot> activeCases;
+  final List<CaseModel> activeCases;
   final String targetLawyerId;
   final String targetLawyerName;
   final String currentUid;
+  final CoordinationService service;
 
   const CaseSelectionDialog({
     super.key,
@@ -2380,57 +2000,17 @@ class CaseSelectionDialog extends StatelessWidget {
     required this.targetLawyerId,
     required this.targetLawyerName,
     required this.currentUid,
+    required this.service,
   });
 
   void _sendCoordinationRequest(BuildContext context, String caseId, String clientName) async {
     try {
-      var currentLawyerDoc = await FirebaseFirestore.instance.collection('verified_lawyers').doc(currentUid).get();
-      String senderName = "Lawyer";
-      if (currentLawyerDoc.exists) {
-        var data = currentLawyerDoc.data();
-        senderName = data?['fullName'] ?? data?['name'] ?? "Lawyer";
-      }
-
-      // Logic Fix: Only add lawyers IDs for now, client will be added upon acceptance.
-      List<String> teamMembers = [currentUid, targetLawyerId];
-
-      await FirebaseFirestore.instance.collection('coordination_requests').add({
-        'senderId': currentUid,
-        'senderName': senderName,
-        'receiverId': targetLawyerId,
-        'receiverName': targetLawyerName,
-        'caseId': caseId,
-        'clientName': clientName,
-        'status': 'Pending',
-        'isGroup': true,
-        'users': teamMembers, // Contains only lawyers during pending state
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      // Send Push Notification to Supporting Lawyer
-      await NotificationHelper.sendPushNotification(
-        targetLawyerId,
-        "New Coordination Request",
-        "$senderName has invited you to coordinate on a case for $clientName.",
-        {
-          'type': 'coordination_request',
-          'senderId': currentUid,
-          'caseId': caseId,
-          'click_action': 'FLUTTER_NOTIFICATION_CLICK',
-        },
+      await service.sendCoordinationRequest(
+        targetLawyerId: targetLawyerId,
+        targetLawyerName: targetLawyerName,
+        caseId: caseId,
+        clientName: clientName,
       );
-
-      // Also add to in-app notifications collection
-      await FirebaseFirestore.instance.collection('notifications').add({
-        'userId': targetLawyerId,
-        'title': 'New Coordination Request',
-        'body': '$senderName has invited you to coordinate on a case for $clientName.',
-        'createdAt': FieldValue.serverTimestamp(),
-        'type': 'coordination_request',
-        'senderId': currentUid,
-        'caseId': caseId,
-        'isRead': false,
-      });
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2457,13 +2037,7 @@ class CaseSelectionDialog extends StatelessWidget {
           shrinkWrap: true,
           itemCount: activeCases.length,
           itemBuilder: (context, index) {
-            var caseDoc = activeCases[index];
-            var caseData = caseDoc.data() as Map<String, dynamic>;
-
-            String clientName = caseData['clientName'] ?? caseData['client_name'] ?? caseData['userName'] ?? "Client";
-            String caseType = caseData['caseType'] ?? caseData['category'] ?? "Active Matter";
-            String clientId = caseData['clientId'] ?? caseData['created_by'] ?? caseData['userId'] ?? "N/A";
-            String caseId = caseDoc.id;
+            var caseModel = activeCases[index];
 
             return Card(
               elevation: 1,
@@ -2473,12 +2047,12 @@ class CaseSelectionDialog extends StatelessWidget {
                   backgroundColor: kNavyBlue,
                   child: Icon(Icons.person, color: Colors.white, size: 20),
                 ),
-                title: Text(clientName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                subtitle: Text("$caseType • Client ID: $clientId", style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                title: Text(caseModel.clientName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                subtitle: Text("${caseModel.caseType} • Case ID: ${caseModel.id}", style: const TextStyle(fontSize: 12, color: Colors.black54)),
                 trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
                 onTap: () {
                   Navigator.pop(context);
-                  _sendCoordinationRequest(context, caseId, clientName);
+                  _sendCoordinationRequest(context, caseModel.id, caseModel.clientName);
                 },
               ),
             );
@@ -2500,7 +2074,8 @@ class CaseSelectionDialog extends StatelessWidget {
 // ==========================================
 class ShareDocDialog extends StatefulWidget {
   final String caseId;
-  const ShareDocDialog({super.key, required this.caseId});
+  final CoordinationService service;
+  const ShareDocDialog({super.key, required this.caseId, required this.service});
 
   @override
   State<ShareDocDialog> createState() => _ShareDocDialogState();
@@ -2588,29 +2163,12 @@ class _ShareDocDialogState extends State<ShareDocDialog> {
             });
 
             try {
-              String fileUrl = '';
-              if (pickedFile != null) {
-                String? uploadedUrl = await uploadToCloudinary(pickedFile!);
-                if (uploadedUrl != null && uploadedUrl.isNotEmpty) {
-                  fileUrl = uploadedUrl;
-                } else {
-                  throw Exception("Cloudinary upload failed. Please try again.");
-                }
-              }
-
-              await FirebaseFirestore.instance
-                  .collection('cases')
-                  .doc(widget.caseId)
-                  .collection('lawyer_private_documents')
-                  .add({
-                'title': titleController.text.trim(),
-                'notes': notesController.text.trim(),
-                'fileName': pickedFile?.name ?? 'No File Attached',
-                'fileSize': pickedFile != null ? '${(pickedFile!.size / 1024).toStringAsFixed(1)} KB' : '',
-                'fileUrl': fileUrl,
-                'sharedBy': FirebaseAuth.instance.currentUser?.uid,
-                'createdAt': FieldValue.serverTimestamp(),
-              });
+              await widget.service.uploadPrivateLawyerDocument(
+                caseId: widget.caseId,
+                title: titleController.text.trim(),
+                notes: notesController.text.trim(),
+                file: pickedFile,
+              );
 
               if (context.mounted) {
                 Navigator.pop(context);

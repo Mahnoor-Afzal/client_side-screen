@@ -6,7 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'client_chat_screen.dart';
 import 'client_dashboard.dart';
 
-import 'client_notification_helper.dart';
+import '../utils/client_notification_helper.dart';
 
 class LawyerProfileScreen extends StatefulWidget {
   final Map<String, dynamic> lawyer;

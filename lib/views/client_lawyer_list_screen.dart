@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'client_notification_helper.dart';
+import '../utils/client_notification_helper.dart';
 import 'client_lawyer_profile_screen.dart';
 import 'client_dashboard.dart';
 
